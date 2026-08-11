@@ -93,6 +93,27 @@ Required for MCU-backed mixer control.
 6. Set both input and output ports to `LogicProMCP-MCU-Internal`.
 7. Close the setup window.
 
+Logic remembers the surface by CoreMIDI endpoint identity. LogicProMCP derives
+that identity from the endpoint name and `LOGIC_PRO_MCP_MIDI_INSTANCE_ID`, so
+the binding survives an MCP server restart. The default namespace is
+`default`. When Codex, Claude, or another client runs its own server process at
+the same time, configure a different stable namespace for each process:
+
+```json
+{
+  "mcpServers": {
+    "logic-pro": {
+      "command": "LogicProMCP",
+      "env": { "LOGIC_PRO_MCP_MIDI_INSTANCE_ID": "codex" }
+    }
+  }
+}
+```
+
+Changing the namespace intentionally creates a different persistent device;
+select its input and output once in Logic's Control Surfaces Setup. Its visible
+name includes the namespace, for example `LogicProMCP-MCU-Internal [codex]`.
+
 Expected health after registration:
 
 ```json

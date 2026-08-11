@@ -561,6 +561,12 @@ struct AXLocalePolicyTests {
         #expect(AXLocalePolicy.beatSliderLabel.matches("beat", mode: .exactStrict))
         #expect(AXLocalePolicy.beatSliderLabel.matches("비트", mode: .exactStrict))
         #expect(!AXLocalePolicy.beatSliderLabel.matches("bar", mode: .exactStrict))
+
+        #expect(AXLocalePolicy.masterVolumeSliderLabel.matches("master volume", mode: .exactStrict))
+        #expect(AXLocalePolicy.masterVolumeSliderLabel.matches("마스터 볼륨", mode: .exactStrict))
+        #expect(AXLocalePolicy.masterVolumeSliderLabel.matches("マスターボリューム", mode: .exactStrict))
+        #expect(AXLocalePolicy.masterVolumeSliderLabel.matches("volumen maestro", mode: .exactStrict))
+        #expect(!AXLocalePolicy.masterVolumeSliderLabel.matches("volume", mode: .exactStrict))
     }
 
     /// The metronome is the one Japanese transport label that is a compound word.

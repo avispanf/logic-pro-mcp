@@ -148,7 +148,7 @@ For Library patches, treat `presetsByCategory` as a browse/catalog view. Default
 
 Public commands: `set_volume`, `set_pan`, `set_master_volume`, `set_plugin_param`, `insert_plugin`.
 
-`set_volume` and `set_pan` use Accessibility write/readback against the visible strip. `set_master_volume` requires MCU. `set_output`, `set_input`, `set_send`, `toggle_eq`, `reset_strip`, and `bypass_plugin` are recognized only to return State C `command_not_exposed` until their targets are deterministic.
+`set_volume` and `set_pan` use Accessibility write/readback against the visible strip. `set_master_volume` writes through MCU and verifies with a fresh MCU echo or independent Control Bar AX readback. `set_output`, `set_input`, `set_send`, `toggle_eq`, `reset_strip`, and `bypass_plugin` are recognized only to return State C `command_not_exposed` until their targets are deterministic.
 
 Read `logic://mixer` before and after mixer mutations.
 

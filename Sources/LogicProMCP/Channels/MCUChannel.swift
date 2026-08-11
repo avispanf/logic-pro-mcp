@@ -18,17 +18,20 @@ actor MCUChannel: Channel {
     struct AXReadback: Sendable {
         let readVolume: @Sendable (Int) async -> Double?
         let readPan: @Sendable (Int) async -> Double?
+        let readMasterVolume: @Sendable () async -> Double?
         let readAutomationMode: @Sendable (Int) async -> AutomationMode?
         let readSelectedTrack: @Sendable () async -> Int?
 
         init(
             readVolume: @escaping @Sendable (Int) async -> Double?,
             readPan: @escaping @Sendable (Int) async -> Double?,
+            readMasterVolume: @escaping @Sendable () async -> Double? = { nil },
             readAutomationMode: @escaping @Sendable (Int) async -> AutomationMode? = { _ in nil },
             readSelectedTrack: @escaping @Sendable () async -> Int? = { nil }
         ) {
             self.readVolume = readVolume
             self.readPan = readPan
+            self.readMasterVolume = readMasterVolume
             self.readAutomationMode = readAutomationMode
             self.readSelectedTrack = readSelectedTrack
         }
@@ -226,7 +229,13 @@ actor MCUChannel: Channel {
             conn.isConnected = false
             conn.registeredAsDevice = false
             conn.lastFeedbackAt = nil
-            conn.portName = "LogicProMCP-MCU-Internal"
+            let namespace = MIDIPortManager.normalizedNamespace(
+                from: ProcessInfo.processInfo.environment
+            )
+            conn.portName = MIDIPortManager.publishedName(
+                for: "LogicProMCP-MCU-Internal",
+                namespace: namespace
+            )
         }
 
         Log.info("MCU Channel started, handshake query sent; waiting for feedback", subsystem: "mcu")
@@ -491,17 +500,13 @@ actor MCUChannel: Channel {
             strip: 8, target: value, timeoutMs: timeoutMs,
             requireFreshAfter: sendAt
         )
-        // #142 — the master fader has NO AX track-header equivalent (per-track
-        // set_volume/set_pan verify via findTrackHeaderVolumeFader, which the
-        // master strip does not expose), so MCU echo on strip 8 is the ONLY
-        // readback path and it is non-deterministic. Disclose the readback
-        // source on EVERY outcome, and on echo timeout attach an explicit
-        // surface_limitation note so a caller never mistakes the State B for a
-        // recoverable failure on a verifiable surface. The op stays honest:
-        // verified:true is claimed ONLY when a fresh matching echo lands.
+        // Prefer a fresh MCU echo. If Logic does not echo the programmatic
+        // master move, fall back to an independent Control Bar AX observation.
         var extras: [String: Any] = [
             "requested": value,
             "observed": observed ?? NSNull(),
+            "observed_mcu": observed ?? NSNull(),
+            "observed_ax": NSNull(),
             "track": "master",
             "readback_source": "mcu_echo",
         ]
@@ -509,8 +514,26 @@ actor MCUChannel: Channel {
         if let observed, abs(observed - value) <= 2.0 / 16383.0 {
             return .success(HonestContract.encodeStateA(extras: extras))
         }
+
+        // Logic 12.x does not reliably echo a programmatic MCU master-fader
+        // move back to the same surface. The global Control Bar slider is an
+        // identity-safe independent observation, however, and its raw taper
+        // is already converted into the public mixer volume contract by the
+        // AX readback closure. Accept only a close numeric match.
+        if let observedAX = await axReadback?.readMasterVolume() {
+            extras["observed"] = observedAX
+            extras["observed_ax"] = observedAX
+            extras["readback_source"] = "ax_control_bar"
+            extras["verify_source"] = "ax_control_bar"
+            if abs(observedAX - value) <= 0.03 {
+                return .success(HonestContract.encodeStateA(extras: extras))
+            }
+            return .success(HonestContract.encodeStateB(
+                reason: .readbackMismatch, extras: extras
+            ))
+        }
         extras["surface_limitation"] =
-            "master fader has no AX track-header equivalent; MCU echo is the only readback and is non-deterministic"
+            "master fader AX Control Bar readback was unavailable; MCU echo is non-deterministic"
         return .success(HonestContract.encodeStateB(
             reason: .echoTimeout(ms: timeoutMs), extras: extras
         ))

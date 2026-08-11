@@ -379,6 +379,12 @@ enum AXLocalePolicy {
         rationale: "Identifies the beat slider in the control bar; verbatim description match; read-only."
     )
 
+    static let masterVolumeSliderLabel = LabelSet(
+        canonical: "Master Volume",
+        variants: ["마스터 볼륨", "マスターボリューム", "Volumen maestro"],
+        rationale: "Identifies the master-volume slider in the control bar; mutation success remains gated by independent numeric readback."
+    )
+
     /// Tempo slider description for `findTempoSlider` (verbatim `.exactStrict`).
     /// Includes `bpm` because that locator explicitly accepts `desc == "bpm"`.
     static let tempoSliderLabel = LabelSet(

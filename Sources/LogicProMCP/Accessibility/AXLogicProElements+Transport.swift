@@ -175,6 +175,21 @@ extension AXLogicProElements {
         return nil
     }
 
+    /// Locate the global Master Volume slider in Logic's Control Bar. Unlike
+    /// track-header faders, this control is available independent of mixer
+    /// visibility and provides the only identity-safe AX readback for the MCU
+    /// master fader.
+    static func findControlBarMasterVolumeSlider(runtime: Runtime = .production) -> AXUIElement? {
+        guard let controlBar = getControlBar(runtime: runtime) else { return nil }
+        let sliders = AXHelpers.findAllDescendants(
+            of: controlBar, role: kAXSliderRole, maxDepth: 4, runtime: runtime.ax
+        )
+        return sliders.first { slider in
+            let description = AXHelpers.getDescription(slider, runtime: runtime.ax)
+            return AXLocalePolicy.masterVolumeSliderLabel.matches(description, mode: .exactStrict)
+        }
+    }
+
     /// Read the current value (0/1) of a control-bar checkbox. Returns nil if
     /// the element can't be located or its value is not readable.
     static func readControlBarCheckboxValue(

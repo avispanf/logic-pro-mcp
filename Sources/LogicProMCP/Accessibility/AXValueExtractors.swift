@@ -150,6 +150,27 @@ enum AXValueExtractors {
         return logicMixerFaderPositionToContract(position)
     }
 
+    /// Read Logic's Control Bar Master Volume slider in the same 0...1
+    /// contract used by MCU pitch-bend writes. Unlike track-header faders,
+    /// this slider exposes a normalized AX range, but that normalized value is
+    /// still the tapered on-screen position rather than the MCU contract.
+    /// Always apply the measured Logic fader taper after normalizing.
+    static func extractLogicMasterFaderValue(
+        _ element: AXUIElement,
+        runtime: AXHelpers.Runtime = .production
+    ) -> Double? {
+        guard let value = extractSliderValue(element, runtime: runtime) else {
+            return nil
+        }
+        let position: Double
+        if let range = extractSliderRange(element, runtime: runtime), range.max > range.min {
+            position = (value - range.min) / (range.max - range.min)
+        } else {
+            position = value
+        }
+        return logicMixerFaderPositionToContract(min(max(position, 0.0), 1.0))
+    }
+
     private static func isLogicMixerRawFaderRange(_ range: SliderRange) -> Bool {
         range.min == 0.0 && range.max > 2.0
     }

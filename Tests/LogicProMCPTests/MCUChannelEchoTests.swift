@@ -86,12 +86,40 @@ private func decodeJSON(_ s: String) -> [String: Any] {
     #expect(((obj["reason"] as? String)?.hasPrefix("echo_timeout_"))!)
 }
 
-// #142 — on echo timeout, set_master_volume must DISCLOSE that MCU echo is the
-// only readback path for the master fader (which, unlike per-track strips, has
-// no AX track-header equivalent to verify against), so a caller never mistakes
-// this State B for a recoverable failure on a verifiable surface. The envelope
-// must carry readback_source:"mcu_echo", an explicit surface_limitation note,
-// and keep observed (null here) + requested.
+@Test func testMCUSetMasterVolumeVerifiesThroughAXControlBarWhenEchoIsMissing() async {
+    let transport = MockMCUTransport()
+    let cache = StateCache()
+    let target = 0.7
+    let channel = MCUChannel(
+        transport: transport,
+        cache: cache,
+        axReadback: .init(
+            readVolume: { _ in nil },
+            readPan: { _ in nil },
+            readMasterVolume: { target }
+        )
+    )
+
+    let result = await channel.execute(
+        operation: "mixer.set_master_volume",
+        params: ["volume": "\(target)"]
+    )
+
+    #expect(result.isSuccess)
+    let obj = decodeJSON(result.message)
+    #expect(obj["verified"] as? Bool == true)
+    #expect(obj["track"] as? String == "master")
+    #expect(obj["requested"] as? Double == target)
+    #expect(obj["observed"] as? Double == target)
+    #expect(obj["observed_ax"] as? Double == target)
+    #expect(obj["observed_mcu"] is NSNull)
+    #expect(obj["readback_source"] as? String == "ax_control_bar")
+    #expect(obj["verify_source"] as? String == "ax_control_bar")
+    #expect(obj["surface_limitation"] == nil)
+}
+
+// If both the MCU echo and independent Control Bar AX readback are unavailable,
+// the operation remains honest State B and discloses the remaining limitation.
 @Test func testMCUSetMasterVolumeTimeoutDisclosesSurfaceLimitation() async {
     let transport = MockMCUTransport()
     let cache = StateCache()
@@ -112,7 +140,7 @@ private func decodeJSON(_ s: String) -> [String: Any] {
     let limitation = obj["surface_limitation"] as? String
     let resolvedLimitation = try! #require(limitation)
     #expect(resolvedLimitation.contains("master fader"))
-    #expect(resolvedLimitation.contains("no AX track-header"))
+    #expect(resolvedLimitation.contains("AX Control Bar"))
     #expect(resolvedLimitation.contains("non-deterministic"))
 }
 

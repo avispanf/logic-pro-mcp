@@ -224,12 +224,13 @@ import Testing
     let cycleDescription = builder.element(324)
     let barSlider = builder.element(325)
     let beatSlider = builder.element(326)
+    let masterVolumeSlider = builder.element(327)
 
     builder.setAttribute(app, kAXMainWindowAttribute as String, window)
     builder.setChildren(window, [controlBar])
     builder.setAttribute(controlBar, kAXRoleAttribute as String, kAXGroupRole as String)
     builder.setAttribute(controlBar, kAXDescriptionAttribute as String, "Control Bar")
-    builder.setChildren(controlBar, [recordTitle, cycleDescription, barSlider, beatSlider])
+    builder.setChildren(controlBar, [recordTitle, cycleDescription, barSlider, beatSlider, masterVolumeSlider])
 
     builder.setAttribute(recordTitle, kAXRoleAttribute as String, kAXCheckBoxRole as String)
     builder.setAttribute(recordTitle, kAXTitleAttribute as String, "Record")
@@ -241,6 +242,8 @@ import Testing
     builder.setAttribute(barSlider, kAXDescriptionAttribute as String, "Bar")
     builder.setAttribute(beatSlider, kAXRoleAttribute as String, kAXSliderRole as String)
     builder.setAttribute(beatSlider, kAXDescriptionAttribute as String, "비트")
+    builder.setAttribute(masterVolumeSlider, kAXRoleAttribute as String, kAXSliderRole as String)
+    builder.setAttribute(masterVolumeSlider, kAXDescriptionAttribute as String, "Volumen maestro")
 
     let runtime = builder.makeLogicRuntime(appElement: app)
 
@@ -267,6 +270,7 @@ import Testing
     )!))
     #expect(AXLogicProElements.findControlBarBarSlider(runtime: runtime) == barSlider)
     #expect(AXLogicProElements.findControlBarBeatSlider(runtime: runtime) == beatSlider)
+    #expect(AXLogicProElements.findControlBarMasterVolumeSlider(runtime: runtime) == masterVolumeSlider)
 }
 
 @Test func testAXLogicProElementsFindsLogic12MixerLayoutAreaAndSkipsInspectorMixer() {

@@ -11,9 +11,11 @@ final class MIDIPortRuntimeHarness: @unchecked Sendable {
     var clientStatus: OSStatus = noErr
     var sourceStatuses: [String: OSStatus] = [:]
     var destinationStatuses: [String: OSStatus] = [:]
+    var uniqueIDStatuses: [MIDIUniqueID: OSStatus] = [:]
     private(set) var createdClients: [String] = []
     private(set) var createdSources: [String] = []
     private(set) var createdDestinations: [String] = []
+    private(set) var assignedUniqueIDs: [(endpoint: MIDIEndpointRef, uniqueID: MIDIUniqueID)] = []
     private(set) var disposedEndpoints: [MIDIEndpointRef] = []
     private(set) var disposedClients: [MIDIClientRef] = []
 
@@ -27,6 +29,9 @@ final class MIDIPortRuntimeHarness: @unchecked Sendable {
             },
             createDestination: { client, name, destination, onReceive in
                 self.createDestination(client: client, name: name, destination: &destination, onReceive: onReceive)
+            },
+            setUniqueID: { endpoint, uniqueID in
+                self.setUniqueID(endpoint: endpoint, uniqueID: uniqueID)
             },
             disposeEndpoint: { endpoint in
                 self.disposeEndpoint(endpoint)
@@ -87,12 +92,91 @@ final class MIDIPortRuntimeHarness: @unchecked Sendable {
         return noErr
     }
 
+    func setUniqueID(endpoint: MIDIEndpointRef, uniqueID: MIDIUniqueID) -> OSStatus {
+        lock.lock()
+        defer { lock.unlock() }
+        assignedUniqueIDs.append((endpoint, uniqueID))
+        return uniqueIDStatuses[uniqueID] ?? noErr
+    }
+
     func disposeClient(_ client: MIDIClientRef) -> OSStatus {
         lock.lock()
         defer { lock.unlock() }
         disposedClients.append(client)
         return noErr
     }
+}
+
+@Test func stableUniqueIDsArePersistentDirectionalAndNamespaced() async throws {
+    let portName = "LogicProMCP-MCU-Internal"
+    let firstHarness = MIDIPortRuntimeHarness()
+    let firstManager = MIDIPortManager(
+        runtime: firstHarness.runtime(),
+        environment: [MIDIPortManager.identityNamespaceEnvironmentKey: "codex"]
+    )
+    try await firstManager.start()
+    _ = try await firstManager.createBidirectionalPort(name: portName) { _, _ in }
+
+    let secondHarness = MIDIPortRuntimeHarness()
+    let secondManager = MIDIPortManager(
+        runtime: secondHarness.runtime(),
+        environment: [MIDIPortManager.identityNamespaceEnvironmentKey: "codex"]
+    )
+    try await secondManager.start()
+    _ = try await secondManager.createBidirectionalPort(name: portName) { _, _ in }
+
+    let otherNamespaceSourceID = MIDIPortManager.stableUniqueID(
+        namespace: "claude",
+        name: portName,
+        direction: .source
+    )
+    let firstIDs = firstHarness.assignedUniqueIDs.map(\.uniqueID)
+    let secondIDs = secondHarness.assignedUniqueIDs.map(\.uniqueID)
+
+    #expect(firstIDs == secondIDs, "a restart in the same namespace must recreate the same identities")
+    #expect(firstHarness.createdSources == ["\(portName) [codex]"])
+    #expect(firstHarness.createdDestinations == ["\(portName) [codex]"])
+    #expect(firstIDs.count == 2)
+    #expect(firstIDs[0] != firstIDs[1], "source and destination need separate CoreMIDI identities")
+    #expect(firstIDs.allSatisfy { $0 < 0 })
+    #expect(firstIDs[0] != otherNamespaceSourceID, "concurrent clients must be separable by namespace")
+}
+
+@Test func uniqueIDAssignmentFailureDisposesCreatedEndpoint() async throws {
+    let portName = "LogicProMCP-KeyCmd-Internal"
+    let namespace = "codex"
+    let expectedID = MIDIPortManager.stableUniqueID(
+        namespace: namespace,
+        name: portName,
+        direction: .source
+    )
+    let harness = MIDIPortRuntimeHarness()
+    harness.uniqueIDStatuses[expectedID] = -10830
+    let manager = MIDIPortManager(
+        runtime: harness.runtime(),
+        environment: [MIDIPortManager.identityNamespaceEnvironmentKey: namespace]
+    )
+    try await manager.start()
+
+    do {
+        _ = try await manager.createSendOnlyPort(name: portName)
+        Issue.record("Expected uniqueIDAssignmentFailed error")
+    } catch MIDIPortError.uniqueIDAssignmentFailed(
+        name: let name,
+        direction: let direction,
+        uniqueID: let uniqueID,
+        status: let status
+    ) {
+        #expect(name == portName)
+        #expect(direction == .source)
+        #expect(uniqueID == expectedID)
+        #expect(status == -10830)
+    } catch {
+        Issue.record("Unexpected error: \(error)")
+    }
+
+    #expect(harness.disposedEndpoints == [200])
+    #expect(await manager.portCount == 0)
 }
 
 @Test func testMIDIPortManagerPortCountStartsAtZero() async {

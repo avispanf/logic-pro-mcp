@@ -88,7 +88,7 @@ Logic Pro MCP uses a different model. It routes each operation to the strongest 
 | Transport | Play, stop, record, locate, cycle, metronome, tempo | CoreMIDI/AX routing with live `logic://transport/state` readback |
 | Tracks | Create, delete, duplicate, select, rename, mute, solo, arm, set instruments | Mutating targets require explicit index/name; uncertain selection fails closed before writes |
 | MIDI composition | Generate SMF server-side, import MIDI, send notes/CC/MMC, create virtual ports | `.mid` imports are constrained to server-managed temp files and must create a live track |
-| Mixer | Volume, pan, plugin snapshots, guarded stock plugin insertion | AX writes with same-surface readback for volume/pan (since #83); `set_master_volume` uses MCU echo; `set_send` is not exposed (State C `command_not_exposed`); occupied plugin slots refuse replacement |
+| Mixer | Volume, pan, plugin snapshots, guarded stock plugin insertion | AX writes with same-surface readback for volume/pan (since #83); `set_master_volume` verifies by fresh MCU echo or independent Control Bar AX readback; `set_send` is not exposed (State C `command_not_exposed`); occupied plugin slots refuse replacement |
 | Library | Scan Logic's instrument library and load patches by path | Disk/AX inventory is cached; disk scan dedupes user/app-bundle `.patch` candidates and `resolve_path` classifies kind/source/loadable before `set_instrument` |
 | Navigation | Bars, markers, zoom, view toggles | Marker navigation is target-faithful; cold-cache misses return failure instead of "next marker" |
 | Project lifecycle | New, open, save, save-as, close, bounce, export plan, quit | Destructive operations require confirmation; dry-run export plans do not open Logic or write artifacts |
@@ -173,6 +173,14 @@ Then complete the two Logic-side setup steps in [docs/SETUP.md](docs/SETUP.md):
 
 - Register the `LogicProMCP-MCU-Internal` MCU control surface.
 - Add the bundled Scripter insert if you need plugin-parameter writes.
+
+The virtual MIDI endpoints now keep a stable CoreMIDI identity across server
+restarts. If more than one MCP client runs concurrently, give each process a
+different `LOGIC_PRO_MCP_MIDI_INSTANCE_ID` (for example `codex` and `claude`)
+so their persistent endpoint identities do not collide. Namespaced endpoints
+are published with a visible suffix, for example
+`LogicProMCP-MCU-Internal [codex]`, which also prevents Logic from confusing
+same-named ports owned by concurrent clients.
 
 Logic 12.2+ does not auto-import the legacy Key Commands plist; the bundled preset is staged as a Manual MIDI Learn reference.
 

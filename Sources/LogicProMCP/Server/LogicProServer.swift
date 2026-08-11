@@ -349,6 +349,10 @@ actor LogicProServer {
                 guard let pan = AXLogicProElements.findPanKnob(trackIndex: track) else { return nil }
                 return AXValueExtractors.extractCenteredSliderValue(pan)
             },
+            readMasterVolume: {
+                guard let slider = AXLogicProElements.findControlBarMasterVolumeSlider() else { return nil }
+                return AXValueExtractors.extractLogicMasterFaderValue(slider)
+            },
             readAutomationMode: { track in
                 guard let header = AXLogicProElements.findTrackHeader(at: track) else { return nil }
                 return AXValueExtractors.extractTrackAutomationModeIfReadable(

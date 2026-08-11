@@ -76,6 +76,23 @@ import Testing
     #expect(AXValueExtractors.extractLogicMixerFaderValue(rangedVolume, runtime: runtime) == 0.8)
 }
 
+@Test func testAXValueExtractorsApplyTaperToNormalizedMasterVolume() {
+    let builder = FakeAXRuntimeBuilder()
+    let master = builder.element(203)
+    builder.setAttribute(master, kAXValueAttribute as String, 0.6136755347251892)
+    builder.setAttribute(master, kAXMinValueAttribute as String, 0.0)
+    builder.setAttribute(master, kAXMaxValueAttribute as String, 1.0)
+
+    let observed = AXValueExtractors.extractLogicMasterFaderValue(
+        master,
+        runtime: builder.makeAXRuntime()
+    )
+    let resolved = try! #require(observed)
+
+    #expect(abs(resolved - 0.7) <= 0.03)
+    #expect(resolved != 0.6136755347251892)
+}
+
 @Test func testAXValueExtractorsBuildTrackStateFromHeader() {
     let builder = FakeAXRuntimeBuilder()
     let header = builder.element(1)

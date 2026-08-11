@@ -137,11 +137,11 @@ Register the Mackie Control surface and set both ports to `LogicProMCP-MCU-Inter
 
 ### Mixer writes return `echo_timeout_500ms`
 
-Logic accepted the host write path but did not echo enough feedback for MCU verification. Confirm MCU registration, make the mixer visible, and read `logic://mcu/state`.
+Logic accepted the host write path but did not echo enough feedback for MCU verification. Confirm MCU registration, make the mixer visible, and read `logic://mcu/state`. For `set_master_volume`, the server also checks the Control Bar master slider; an echo timeout means that independent AX readback was unavailable too.
 
 ### Mixer values do not update
 
-Read `logic://mixer` after the write. `set_volume` and `set_pan` use visible-strip AX readback; `set_master_volume` depends on MCU feedback. `set_send` is not exposed (State C `command_not_exposed`), so there is no send write to verify.
+Read `logic://mixer` after the write. `set_volume` and `set_pan` use visible-strip AX readback; `set_master_volume` uses a fresh MCU echo or independent Control Bar AX readback. `set_send` is not exposed (State C `command_not_exposed`), so there is no send write to verify.
 
 ## MIDI
 
