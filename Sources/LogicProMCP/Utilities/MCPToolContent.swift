@@ -6,9 +6,15 @@ func toolTextContent(_ text: String) -> Tool.Content {
 }
 
 func toolTextResult(_ text: String, isError: Bool = false) -> CallTool.Result {
-    CallTool.Result(
+    let structuredContent: Value? = structuredContentValue(fromToolText: text)
+        ?? .object(["text": .string(text)])
+    return CallTool.Result(
         content: [toolTextContent(text)],
-        structuredContent: structuredContentValue(fromToolText: text),
+        // Every public tool advertises an object outputSchema. JSON object
+        // responses keep their exact structured twin; legacy prose responses
+        // still need a schema-valid object or strict MCP SDKs reject the result
+        // after the command has already executed.
+        structuredContent: structuredContent,
         isError: isError
     )
 }

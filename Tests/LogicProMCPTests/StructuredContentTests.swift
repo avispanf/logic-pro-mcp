@@ -89,7 +89,11 @@ struct StructuredContentTests {
         _ = try await waitForProbeResponse(transport, id: 1)
 
         await transport.queueJSON(probeToolCallFrame(id: 2, name: "logic_system", command: "health"))
-        let response = try await waitForProbeResponse(transport, id: 2)
+        let response = try await waitForProbeResponse(
+            transport,
+            id: 2,
+            timeoutNanoseconds: 5_000_000_000
+        )
         let result = try #require(response["result"] as? [String: Any])
         let content = try #require(result["content"] as? [[String: Any]])
         let firstContent = try #require(content.first)

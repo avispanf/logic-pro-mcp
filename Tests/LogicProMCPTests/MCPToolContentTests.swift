@@ -23,6 +23,7 @@ import Testing
     } else {
         Issue.record("Expected text tool content")
     }
+    #expect(result.structuredContent == .object(["text": .string("boom")]))
 }
 
 @Test func testToolTextResultReflectsChannelResultSuccessAndFailure() {
@@ -43,6 +44,16 @@ import Testing
     } else {
         Issue.record("Expected failure text tool content")
     }
+    #expect(success.structuredContent == .object(["text": .string("ok")]))
+    #expect(failure.structuredContent == .object(["text": .string("failed")]))
+}
+
+@Test func testToolTextResultPreservesJSONObjectAsStructuredContent() {
+    let result = toolTextResult(#"{"ok":true,"count":2}"#)
+    #expect(result.structuredContent == .object([
+        "ok": .bool(true),
+        "count": .int(2),
+    ]))
 }
 
 @Test func testCommandToolUsesSharedCommandSchema() {
