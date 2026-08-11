@@ -228,6 +228,7 @@ struct Issue112CommandDeadlineTests {
         #expect(AccessibilityChannel.setInstrumentLibraryNavigationDeadlineSeconds == 30)
         #expect(LogicProServer.commandDeadlineSeconds(tool: "logic_plugins", command: "insert_verified") == 90)
         #expect(LogicProServer.commandDeadlineSeconds(tool: "logic_midi", command: "play_sequence") == 90)
+        #expect(LogicProServer.commandDeadlineSeconds(tool: "logic_system", command: "refresh_cache") == 90)
     }
 
     @Test("all mutating transport commands hold the timeout mutation gate")

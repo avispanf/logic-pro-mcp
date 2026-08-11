@@ -27,6 +27,40 @@ private final class BlockingTracksProbe: @unchecked Sendable {
     }
 }
 
+private final class BlockingProjectProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entered = false
+    private var callCount = 0
+    private let release = DispatchSemaphore(value: 0)
+
+    func hasEntered() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return entered
+    }
+
+    func calls() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return callCount
+    }
+
+    func unblock() {
+        release.signal()
+    }
+
+    func projectResult() -> ChannelResult {
+        lock.lock()
+        entered = true
+        callCount += 1
+        lock.unlock()
+        release.wait()
+        return .success(
+            #"{"name":"Coalesced","sampleRate":48000,"bitDepth":24,"tempo":120,"timeSignature":"4/4","trackCount":1,"filePath":null,"lastUpdated":"2026-08-11T00:00:00Z"}"#
+        )
+    }
+}
+
 private actor CompletionProbe {
     private var completed = false
 
@@ -56,6 +90,7 @@ private func waitUntil(
 
 private func makeStatePollerAccessibilityRuntime(
     projectInfoResult: ChannelResult,
+    projectInfo: (@Sendable () -> ChannelResult)? = nil,
     transportResult: ChannelResult = .success("{}"),
     tracksResult: ChannelResult = .success("[]"),
     trackStates: [TrackState]? = nil,
@@ -79,7 +114,7 @@ private func makeStatePollerAccessibilityRuntime(
         mixerState: { mixerResult },
         channelStrip: { _ in .success("{}") },
         setMixerValue: { _, _ in .success("{}") },
-        projectInfo: { projectInfoResult },
+        projectInfo: projectInfo ?? { projectInfoResult },
         markers: { markersResult }
     )
 }
@@ -275,6 +310,66 @@ private func makeStatePollerAccessibilityRuntime(
     #expect(strips[1].pan == 0.2)
     #expect(project.name == "Session B")
     #expect(project.trackCount == 2)
+}
+
+@Test func testStatePollerCoalescesOverlappingExplicitRefreshes() async throws {
+    let probe = BlockingProjectProbe()
+    let cache = StateCache()
+    let channel = AccessibilityChannel(
+        runtime: makeStatePollerAccessibilityRuntime(
+            projectInfoResult: .success("{}"),
+            projectInfo: { probe.projectResult() }
+        )
+    )
+    let poller = StatePoller(
+        axChannel: channel,
+        cache: cache,
+        runtime: .init(hasVisibleWindow: { true })
+    )
+
+    let first = Task { await poller.refreshNow() }
+    #expect(try await waitUntil { probe.hasEntered() })
+
+    let second = Task { await poller.refreshNow() }
+    try await Task.sleep(nanoseconds: 20_000_000)
+    #expect(probe.calls() == 1)
+
+    probe.unblock()
+    await first.value
+    await second.value
+
+    #expect(probe.calls() == 1)
+    #expect((await cache.getProject()).name == "Coalesced")
+}
+
+@Test func testStatePollerExplicitRefreshCoalescesWithBackgroundCycle() async throws {
+    let probe = BlockingProjectProbe()
+    let cache = StateCache()
+    let channel = AccessibilityChannel(
+        runtime: makeStatePollerAccessibilityRuntime(
+            projectInfoResult: .success("{}"),
+            projectInfo: { probe.projectResult() }
+        )
+    )
+    let poller = StatePoller(
+        axChannel: channel,
+        cache: cache,
+        runtime: .init(hasVisibleWindow: { true })
+    )
+
+    await poller.start()
+    #expect(try await waitUntil { probe.hasEntered() })
+
+    let explicitRefresh = Task { await poller.refreshNow() }
+    try await Task.sleep(nanoseconds: 20_000_000)
+    #expect(probe.calls() == 1)
+
+    probe.unblock()
+    await explicitRefresh.value
+    await poller.stop()
+
+    #expect(probe.calls() == 1)
+    #expect((await cache.getProject()).name == "Coalesced")
 }
 
 @Test func testStatePollerClearsDocumentStateWhenNoVisibleWindow() async {

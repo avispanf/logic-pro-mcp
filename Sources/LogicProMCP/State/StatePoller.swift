@@ -87,6 +87,13 @@ actor StatePoller {
     private let runtime: Runtime
     private let postPoll: @Sendable ([ResourceCacheKey]) async -> Void
     private var pollingTask: Task<Void, Never>?
+    /// One AX poll may already be suspended inside `AccessibilityChannel` when
+    /// `system.refresh_cache` arrives. Starting another full project/tracks/
+    /// mixer walk at that point only queues duplicate work behind the channel
+    /// actor and can push the caller past its deadline on large sessions.
+    /// Coalesce every overlapping caller onto the in-flight cycle instead.
+    private var pollInProgress = false
+    private var pollWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         axChannel: AccessibilityChannel,
@@ -137,14 +144,32 @@ actor StatePoller {
     // MARK: - Poll loop
 
     func refreshNow() async {
+        if pollInProgress {
+            await withCheckedContinuation { continuation in
+                pollWaiters.append(continuation)
+            }
+            return
+        }
+
+        pollInProgress = true
         await pollOnce(axChannel: axChannel, cache: cache)
+        pollInProgress = false
+
+        let waiters = pollWaiters
+        pollWaiters.removeAll(keepingCapacity: true)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     private func pollLoop(axChannel: AccessibilityChannel, cache: StateCache) async {
         let intervalNs = ServerConfig.statePollingIntervalNs
 
         while !Task.isCancelled {
-            await pollOnce(axChannel: axChannel, cache: cache)
+            // Use the same coalescing path as explicit refreshes. The actor is
+            // re-entrant while AX work is awaited, so a tool call can otherwise
+            // enter here and launch a second cycle concurrently.
+            await refreshNow()
 
             do {
                 // Route through runtime.sleep so tests can drive this loop at

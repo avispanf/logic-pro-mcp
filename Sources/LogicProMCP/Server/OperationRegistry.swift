@@ -642,7 +642,10 @@ enum OperationRegistry {
     } + ([
         (.systemHealth, "health", Mutability.readOnly, DeadlineClass.short, VerificationPolicy.none, []),
         (.systemPermissions, "permissions", Mutability.readOnly, DeadlineClass.short, VerificationPolicy.none, []),
-        (.systemRefreshCache, "refresh_cache", Mutability.readOnly, DeadlineClass.short, VerificationPolicy.none, []),
+        // A refresh is a full AX project/tracks/transport/mixer/marker cycle.
+        // Measured large Logic 12.3 sessions can exceed the 25 s short tier
+        // without being wedged, so use the bounded 90 s multi-step tier.
+        (.systemRefreshCache, "refresh_cache", Mutability.readOnly, DeadlineClass.medium, VerificationPolicy.none, []),
         (.systemListRecentTraces, "list_recent_traces", Mutability.readOnly, DeadlineClass.short, VerificationPolicy.none, ["limit"]),
         (.systemGetTrace, "get_trace", Mutability.readOnly, DeadlineClass.short, VerificationPolicy.none, ["trace_id"]),
         // WHY: trace deletion destroys internal evidence, not Logic state, so it stays readOnly and bypasses the Logic-write gate.
