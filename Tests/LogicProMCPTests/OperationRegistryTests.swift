@@ -956,7 +956,7 @@ struct OperationRegistryTests {
         ("tracks.duplicate", "duplicate", .mutating, .short, .none),
         ("tracks.rename", "rename", .mutating, .short, .readbackRequired),
         ("tracks.mute", "mute", .mutating, .short, .readbackRequired),
-        ("tracks.solo", "solo", .mutating, .short, .readbackRequired),
+        ("tracks.solo", "solo", .mutating, .medium, .readbackRequired),
         ("tracks.arm", "arm", .mutating, .short, .readbackRequired),
         ("tracks.arm_only", "arm_only", .mutating, .short, .readbackRequired),
         ("tracks.record_sequence", "record_sequence", .mutating, .long, .readbackRequired),
@@ -1046,8 +1046,10 @@ struct OperationRegistryTests {
 
     @Test("tracks deadlines preserve short medium long and read-only long tiers")
     func tracksDeadlineParity() {
-        #expect(Self.trackCommands.filter { $0.deadline == .short }.count == 14)
-        #expect(Self.trackCommands.filter { $0.deadline == .medium }.map(\.command) == ["set_instrument"])
+        #expect(Self.trackCommands.filter { $0.deadline == .short }.count == 13)
+        #expect(Self.trackCommands.filter { $0.deadline == .medium }.map(\.command) == [
+            "solo", "set_instrument",
+        ])
         #expect(Set(Self.trackCommands.filter { $0.deadline == .long }.map(\.command)) == Set([
             "record_sequence", "list_library", "scan_library", "scan_plugin_presets",
         ]))

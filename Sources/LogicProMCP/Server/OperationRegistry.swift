@@ -883,7 +883,9 @@ enum OperationRegistry {
         (.tracksDuplicate, "duplicate", Mutability.`mutating`, DeadlineClass.short, VerificationPolicy.none, TargetPolicy.acceptsStableTarget, ["index", "track"]),
         (.tracksRename, "rename", Mutability.`mutating`, DeadlineClass.short, VerificationPolicy.readbackRequired, TargetPolicy.acceptsStableTarget, ["index", "name", "track"]),
         (.tracksMute, "mute", Mutability.`mutating`, DeadlineClass.short, VerificationPolicy.readbackRequired, TargetPolicy.acceptsStableTarget, ["enabled", "index", "track"]),
-        (.tracksSolo, "solo", Mutability.`mutating`, DeadlineClass.short, VerificationPolicy.readbackRequired, TargetPolicy.acceptsStableTarget, ["enabled", "index", "track"]),
+        // Large Logic sessions can take more than 25 seconds just to enumerate the
+        // Arrange track-header rail before the verified toggle/readback begins.
+        (.tracksSolo, "solo", Mutability.`mutating`, DeadlineClass.medium, VerificationPolicy.readbackRequired, TargetPolicy.acceptsStableTarget, ["enabled", "index", "track"]),
         (.tracksArm, "arm", Mutability.`mutating`, DeadlineClass.short, VerificationPolicy.readbackRequired, TargetPolicy.acceptsStableTarget, ["enabled", "index", "track"]),
         (.tracksArmOnly, "arm_only", Mutability.`mutating`, DeadlineClass.short, VerificationPolicy.readbackRequired, TargetPolicy.acceptsStableTarget, ["index", "track"]),
         (.tracksRecordSequence, "record_sequence", Mutability.`mutating`, DeadlineClass.long, VerificationPolicy.readbackRequired, TargetPolicy.none, ["bar", "notes", "tempo"]),
