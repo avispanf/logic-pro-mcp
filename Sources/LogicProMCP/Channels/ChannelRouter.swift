@@ -122,8 +122,20 @@ actor ChannelRouter {
     /// Route an operation through its fallback chain.
     /// Returns the result from the first channel that succeeds.
     func route(operation: String, params: [String: String] = [:]) async -> ChannelResult {
-        guard let chain = Self.routingTable[operation] else {
+        guard let configuredChain = Self.routingTable[operation] else {
             return .error("Unknown operation: \(operation)")
+        }
+        // A long-running audit can independently verify selection against the
+        // selected-track Inspector name. In that explicitly opted-in mode, send
+        // track.select through the dedicated MCU first: its write is immediate
+        // and State B is honest, while the caller supplies the stronger AX
+        // read-back. The default public route remains AX-first.
+        let chain: [ChannelID]
+        if operation == "track.select",
+           ProcessInfo.processInfo.environment["LOGIC_PRO_MCP_TRACK_SELECT_MCU_FIRST"] == "1" {
+            chain = [.mcu, .accessibility]
+        } else {
+            chain = configuredChain
         }
 
         // Operations with empty chain don't need a channel
