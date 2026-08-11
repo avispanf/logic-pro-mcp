@@ -81,6 +81,23 @@ private final class PhasedValue<T>: @unchecked Sendable {
     }
 }
 
+private final class ActionFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set() {
+        lock.lock()
+        defer { lock.unlock() }
+        value = true
+    }
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 private struct AlertFixture {
     let builder: FakeAXRuntimeBuilder
     let runtime: AXLogicProElements.Runtime
@@ -100,6 +117,7 @@ private func makeAlertFixture(
     laterButtonTitles: [String]? = nil,
     replaceDialogAfterClassification: Bool = false,
     removeDialogAfterClassification: Bool = false,
+    removeDialogAfterPress: Bool = false,
     pressSucceeds: Bool = true
 ) -> AlertFixture {
     let builder = FakeAXRuntimeBuilder()
@@ -141,11 +159,16 @@ private func makeAlertFixture(
         before: initialButtons,
         after: laterButtonTitles.map { buttons($0, startingAt: 300) } ?? initialButtons
     )
+    let pressObserved = ActionFlag()
 
     // `nil` means "not handled, fall through to the builder"; `.some(x)` means
     // "handled, here is x" — the double optional is load-bearing.
     let windowsHandler: (@Sendable (AXUIElement, String) -> AnyObject??) = { element, attribute in
         guard attribute == (kAXWindowsAttribute as String), CFEqual(element, app) else { return nil }
+        if removeDialogAfterPress, pressObserved.isSet {
+            let noWindows: [AXUIElement] = []
+            return AnyObject??.some(noWindows as AnyObject)
+        }
         let list: [AXUIElement] = windows.next()
         return AnyObject??.some(list as AnyObject)
     }
@@ -168,7 +191,13 @@ private func makeAlertFixture(
             children: { element in
                 CFEqual(element, dialog) ? dialogChildren.next() : base.ax.children(element)
             },
-            performAction: base.ax.performAction,
+            performAction: { element, action in
+                let performed = base.ax.performAction(element, action)
+                if performed, action == (kAXPressAction as String) {
+                    pressObserved.set()
+                }
+                return performed
+            },
             childCount: base.ax.childCount
         ),
         executeAppleScript: base.executeAppleScript
@@ -194,7 +223,7 @@ struct Issue453AlertAcknowledgeBindingTests {
     /// The gate must release, or a real single-button alert blocks the server.
     @Test("a stable single-button alert is acknowledged by pressing that button")
     func stableSingleButtonAlertIsAcknowledged() async {
-        let fixture = makeAlertFixture(initialButtonTitles: ["OK"])
+        let fixture = makeAlertFixture(initialButtonTitles: ["OK"], removeDialogAfterPress: true)
 
         let outcome = await AccessibilityChannel.reconcilePreflight(runtime: fixture.runtime)
 
@@ -208,6 +237,18 @@ struct Issue453AlertAcknowledgeBindingTests {
             fixture.pressedElementIDs.first == fixture.buttonIDs.first,
             "the press must land on the classified dialog's own button"
         )
+    }
+
+    @Test("a successful alert press is not reported while that alert remains")
+    func stableAlertAfterSuccessfulPressIsNotReportedPerformed() async {
+        let fixture = makeAlertFixture(initialButtonTitles: ["OK"])
+
+        let outcome = await AccessibilityChannel.reconcilePreflight(runtime: fixture.runtime)
+
+        #expect(outcome.decision == .acknowledgeAlert)
+        #expect(!outcome.performed)
+        #expect(outcome.refusal == nil)
+        #expect(fixture.pressedElementIDs.count == 1)
     }
 
     /// The regression: a different dialog came forward between classify and click.

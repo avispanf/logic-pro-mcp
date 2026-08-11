@@ -272,6 +272,81 @@ extension AccessibilityChannel {
         }
     }
 
+    // `AXPress` and AppleScript success both describe only an attempted IPC
+    // request, not what Logic did with it. Keep the post-actuation observation
+    // short and bounded: it is enough for the UI to publish its normal close,
+    // without turning a wedged modal into a long operation timeout.
+    private static let modalClearObservationAttempts = 5
+    private static let modalClearObservationDelayNanoseconds: UInt64 = 50_000_000
+
+    /// The absence is trustworthy only when the main window itself can still be
+    /// read. A missing AX window is an unavailable readback, not proof that its
+    /// sheet closed.
+    private static func mainWindowSheetIsGone(runtime: AXLogicProElements.Runtime) -> Bool {
+        guard let window = AXLogicProElements.mainWindow(runtime: runtime) else { return false }
+        return firstSheet(in: window, runtime: runtime.ax) == nil
+    }
+
+    /// Unlike the classifier's conservative `detectStrayMenuOpen`, this
+    /// observation must distinguish "no selected menu item" from "could not
+    /// read the menu bar". The latter is not evidence that Escape worked.
+    private static func strayMenuIsGone(runtime: AXLogicProElements.Runtime) -> Bool {
+        guard let menuBar = AXLogicProElements.getMenuBar(runtime: runtime) else { return false }
+        return !AXHelpers.getChildren(menuBar, runtime: runtime.ax).contains { item in
+            (AXHelpers.getAttribute(item, kAXSelectedAttribute, runtime: runtime.ax) as Bool?) == true
+        }
+    }
+
+    /// `blockingDialogTarget` reads only the first blocking window, so it
+    /// cannot prove a classified alert disappeared if another dialog moves in
+    /// front of it. Inspect the full live window list and require the classified
+    /// element itself to be absent.
+    private static func topLevelAlertTargetIsGone(
+        _ target: AXLogicProElements.BlockingDialogTarget,
+        runtime: AXLogicProElements.Runtime
+    ) -> Bool {
+        guard let app = AXLogicProElements.appRoot(runtime: runtime),
+              let windows: [AXUIElement] = AXHelpers.getAttribute(
+                app, kAXWindowsAttribute, runtime: runtime.ax
+              ) else {
+            return false
+        }
+        return !windows.contains { CFEqual($0, target.element) }
+    }
+
+    private static func observeMainWindowSheetGone(runtime: AXLogicProElements.Runtime) async -> Bool {
+        for attempt in 0..<modalClearObservationAttempts {
+            if mainWindowSheetIsGone(runtime: runtime) { return true }
+            if attempt < modalClearObservationAttempts - 1 {
+                try? await Task.sleep(nanoseconds: modalClearObservationDelayNanoseconds)
+            }
+        }
+        return false
+    }
+
+    private static func observeStrayMenuGone(runtime: AXLogicProElements.Runtime) async -> Bool {
+        for attempt in 0..<modalClearObservationAttempts {
+            if strayMenuIsGone(runtime: runtime) { return true }
+            if attempt < modalClearObservationAttempts - 1 {
+                try? await Task.sleep(nanoseconds: modalClearObservationDelayNanoseconds)
+            }
+        }
+        return false
+    }
+
+    private static func observeTopLevelAlertTargetGone(
+        _ target: AXLogicProElements.BlockingDialogTarget,
+        runtime: AXLogicProElements.Runtime
+    ) async -> Bool {
+        for attempt in 0..<modalClearObservationAttempts {
+            if topLevelAlertTargetIsGone(target, runtime: runtime) { return true }
+            if attempt < modalClearObservationAttempts - 1 {
+                try? await Task.sleep(nanoseconds: modalClearObservationDelayNanoseconds)
+            }
+        }
+        return false
+    }
+
     // MARK: - Executor
 
     private static func perform(
@@ -284,20 +359,23 @@ extension AccessibilityChannel {
         case .noAction, .failClosed:
             return (false, nil)
         case .clickCreate:
-            return (await clickNewTrackCreateButton(createTitle: signals.createButtonTitle), nil)
+            return (await clickNewTrackCreateButton(createTitle: signals.createButtonTitle, runtime: runtime), nil)
         case .confirmDelete:
-            return (await confirmDeleteTracksSheet(deleteTitle: signals.deletePrimaryTitle), nil)
+            return (await confirmDeleteTracksSheet(deleteTitle: signals.deletePrimaryTitle, runtime: runtime), nil)
         case .acknowledgeAlert:
-            return acknowledgeTopLevelAlert(target: alertTarget, runtime: runtime)
+            return await acknowledgeTopLevelAlert(target: alertTarget, runtime: runtime)
         case .escapeMenu:
-            return (await sendEscapeKey(), nil)
+            return (await sendEscapeKey(runtime: runtime), nil)
         }
     }
 
     /// Click the mandatory New Track sheet's only exit (`Create` / `생성`). The
     /// title is the localized on-screen label the reader resolved (#350), so this
     /// works on Korean Logic; Escape/Cancel are inert on this sheet.
-    private static func clickNewTrackCreateButton(createTitle: String) async -> Bool {
+    private static func clickNewTrackCreateButton(
+        createTitle: String,
+        runtime: AXLogicProElements.Runtime
+    ) async -> Bool {
         let target = LogicProTarget.appleScriptTarget()
         let escapedTitle = AppleScriptSafety.escapeForScript(createTitle)
         let script = """
@@ -308,14 +386,18 @@ extension AccessibilityChannel {
         end tell
         return "clicked"
         """
-        return await AppleScriptChannel.executeAppleScript(script).isSuccess
+        _ = await runtime.executeAppleScript(script)
+        return await observeMainWindowSheetGone(runtime: runtime)
     }
 
     /// Confirm the delete-channel-strips sheet by its primary destructive button,
     /// clicking the localized title the reader resolved (#350). Falls back to the
     /// sheet's default button (Return) when the title is absent/unmatched — which
     /// also covers the KO path (the KO delete title is unverified, so no variant).
-    private static func confirmDeleteTracksSheet(deleteTitle: String) async -> Bool {
+    private static func confirmDeleteTracksSheet(
+        deleteTitle: String,
+        runtime: AXLogicProElements.Runtime
+    ) async -> Bool {
         let target = LogicProTarget.appleScriptTarget()
         let escapedTitle = AppleScriptSafety.escapeForScript(deleteTitle)
         let script = """
@@ -327,13 +409,13 @@ extension AccessibilityChannel {
         return "clicked"
         """
         if !deleteTitle.isEmpty,
-           await AppleScriptChannel.executeAppleScript(script).isSuccess {
-            return true
+           await runtime.executeAppleScript(script).isSuccess {
+            return await observeMainWindowSheetGone(runtime: runtime)
         }
         // Fall back to the default button — the primary delete action is the
         // sheet's default, so Return commits it.
         sendReturnKey()
-        return true
+        return await observeMainWindowSheetGone(runtime: runtime)
     }
 
     /// Acknowledge a single-button top-level informational alert.
@@ -364,7 +446,7 @@ extension AccessibilityChannel {
     private static func acknowledgeTopLevelAlert(
         target: AXLogicProElements.BlockingDialogTarget?,
         runtime: AXLogicProElements.Runtime
-    ) -> (performed: Bool, refusal: AlertAcknowledgeRefusal?) {
+    ) async -> (performed: Bool, refusal: AlertAcknowledgeRefusal?) {
         guard let target else { return (false, .targetUnavailable) }
 
         // Re-resolve the app's current blocking dialog and require it to be the
@@ -386,14 +468,15 @@ extension AccessibilityChannel {
             return (false, .buttonCountChanged)
         }
 
-        guard AXHelpers.performAction(only.element, kAXPressAction as String, runtime: runtime.ax) else {
-            return (false, .pressFailed)
+        let pressSucceeded = AXHelpers.performAction(only.element, kAXPressAction as String, runtime: runtime.ax)
+        if await observeTopLevelAlertTargetGone(target, runtime: runtime) {
+            return (true, nil)
         }
-        return (true, nil)
+        return (false, pressSucceeded ? nil : .pressFailed)
     }
 
     /// Send Escape (key code 53) to close a stray open menu.
-    private static func sendEscapeKey() async -> Bool {
+    private static func sendEscapeKey(runtime: AXLogicProElements.Runtime) async -> Bool {
         let target = LogicProTarget.appleScriptTarget()
         let script = """
         tell application "System Events"
@@ -403,7 +486,8 @@ extension AccessibilityChannel {
         end tell
         return "escaped"
         """
-        return await AppleScriptChannel.executeAppleScript(script).isSuccess
+        _ = await runtime.executeAppleScript(script)
+        return await observeStrayMenuGone(runtime: runtime)
     }
 
     // MARK: - Extras labels
