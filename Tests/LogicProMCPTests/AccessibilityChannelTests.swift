@@ -3194,7 +3194,8 @@ private func makeTempoSliderFixture(
     // The command used to resolve the row, then resolve it again inside the AX
     // selection ladder, and then rediscover its parent — finishing State A only
     // after the 25s command deadline. One discovery resolves row + parent; the
-    // second read below is the independent post-write verification.
+    // independent post-write verification reads AXSelected directly from the
+    // resolved target row and does not walk the main window again.
     let builder = FakeAXRuntimeBuilder()
     let app = builder.element(650)
     let window = builder.element(651)
@@ -3244,7 +3245,7 @@ private func makeTempoSliderFixture(
 
     #expect(result.isSuccess)
     #expect(object["state"] as? String == "A")
-    #expect(mainWindowReads.count == 2)
+    #expect(mainWindowReads.count == 1)
 }
 
 @Test func testAccessibilityChannelSetInstrumentReturnsTargetAndPatchVerificationMetadata() async {

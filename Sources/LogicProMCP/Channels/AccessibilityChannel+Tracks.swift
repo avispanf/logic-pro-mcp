@@ -68,7 +68,11 @@ extension AccessibilityChannel {
         // the outcome as a 3-state Honest Contract response rather than the
         // legacy free-form text. Existing `verified:true/false` JSON path
         // stays valid because the new envelope still contains those keys.
-        let verification = await verifyTrackSelection(index: index, runtime: runtime)
+        let verification = await verifyTrackSelection(
+            index: index,
+            resolvedHeader: resolved.header,
+            runtime: runtime
+        )
         let base: [String: Any] = ["requested": index, "selected": index]
         switch verification {
         case .verified:
@@ -1208,8 +1212,30 @@ extension AccessibilityChannel {
 
     static func verifyTrackSelection(
         index: Int,
+        resolvedHeader: AXUIElement? = nil,
         runtime: AXLogicProElements.Runtime
     ) async -> TrackSelectionVerification {
+        // The write target is already a trusted track-header row. Re-read its
+        // AXSelected state directly before rediscovering the full Arrange tree.
+        // This is still an independent post-write observation, but avoids a
+        // second multi-second main-window walk on large projects in the normal
+        // verified path. A missing/false direct value falls through to the
+        // existing exhaustive scan so mismatch/disappearance semantics stay
+        // unchanged.
+        if let resolvedHeader {
+            for attempt in 0..<6 {
+                if AXValueExtractors.extractSelectedState(
+                    resolvedHeader,
+                    runtime: runtime.ax
+                ) == true {
+                    return .verified
+                }
+                if attempt < 5 {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+            }
+        }
+
         var sawSelectionMetadata = false
 
         for attempt in 0..<6 {
