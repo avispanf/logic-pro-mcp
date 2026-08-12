@@ -35,7 +35,7 @@ extension AccessibilityChannel {
         guard let indexStr = params["index"], let index = Int(indexStr) else {
             return .error("Missing or invalid 'index' parameter")
         }
-        guard AXLogicProElements.findTrackHeader(at: index, runtime: runtime) != nil else {
+        guard let resolved = AXLogicProElements.resolveTrackHeader(at: index, runtime: runtime) else {
             // v3.1.0 (T3) — missing track is a hard failure; no retry will
             // help. Keep legacy error-string path for ChannelResult.error so
             // existing callers that look at .isSuccess still see a failure,
@@ -51,7 +51,11 @@ extension AccessibilityChannel {
         // coordinate fallback — fail closed if every AX step is rejected).
         _ = ProcessUtils.Runtime.production.activateLogicPro()
         try? await Task.sleep(nanoseconds: 150_000_000)
-        guard AXLogicProElements.selectTrackViaAX(at: index, runtime: runtime) else {
+        guard AXLogicProElements.selectTrackViaAX(
+            header: resolved.header,
+            headersGroup: resolved.headersGroup,
+            runtime: runtime
+        ) else {
             return .error(HonestContract.encodeStateC(
                 error: .axWriteFailed,
                 hint: "Failed to select track \(index) via the AX selection ladder",

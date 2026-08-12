@@ -72,9 +72,24 @@ extension AXLogicProElements {
 
     /// Find a track header at a specific index (0-based).
     static func findTrackHeader(at index: Int, runtime: Runtime = .production) -> AXUIElement? {
-        let rows = allTrackHeaders(runtime: runtime)
-        guard index >= 0 && index < rows.count else { return nil }
-        return rows[index]
+        resolveTrackHeader(at: index, runtime: runtime)?.header
+    }
+
+    /// Resolve the trusted headers container and one row in a single main-window walk.
+    /// A live Logic 12.3 project with 52 tracks measured roughly 20 seconds per
+    /// `getTrackHeaders` discovery. Selection used to perform that discovery twice
+    /// (once for the row and once for its writable AXSelectedChildren parent), which
+    /// could finish successfully after the server's 25-second command deadline.
+    static func resolveTrackHeader(
+        at index: Int,
+        runtime: Runtime = .production
+    ) -> (headersGroup: AXUIElement, header: AXUIElement)? {
+        guard index >= 0, let headersGroup = getTrackHeaders(runtime: runtime) else {
+            return nil
+        }
+        let rows = trackHeaders(in: headersGroup, runtime: runtime)
+        guard index < rows.count else { return nil }
+        return (headersGroup, rows[index])
     }
 
     /// Select a track using Apple's standard AX API before falling back to
@@ -101,21 +116,36 @@ extension AXLogicProElements {
         at index: Int,
         runtime: Runtime = .production
     ) -> Bool {
-        guard let header = findTrackHeader(at: index, runtime: runtime) else { return false }
+        guard let resolved = resolveTrackHeader(at: index, runtime: runtime) else {
+            return false
+        }
+        return selectTrackViaAX(
+            header: resolved.header,
+            headersGroup: resolved.headersGroup,
+            runtime: runtime
+        )
+    }
+
+    /// Actuate a row that was already resolved with its trusted parent container.
+    /// Keeping this overload separate lets callers that need an element-not-found
+    /// distinction avoid repeating the expensive full-window discovery.
+    static func selectTrackViaAX(
+        header: AXUIElement,
+        headersGroup: AXUIElement,
+        runtime: Runtime = .production
+    ) -> Bool {
 
         // Step 1 (v3.0.9 primary path) — AXSelectedChildren on parent group.
         // This is the one mechanism that ACTUALLY moves Logic's track selection
         // (live-verified: 10/10 indices on a 10-track project). Every other AX
         // action on the track header is a no-op for selection purposes.
-        if let headersGroup = getTrackHeaders(runtime: runtime) {
-            let arr = [header] as CFArray
-            let r = AXUIElementSetAttributeValue(
-                headersGroup,
-                kAXSelectedChildrenAttribute as CFString,
-                arr
-            )
-            if r == .success { return true }
-        }
+        let arr = [header] as CFArray
+        let r = AXUIElementSetAttributeValue(
+            headersGroup,
+            kAXSelectedChildrenAttribute as CFString,
+            arr
+        )
+        if r == .success { return true }
 
         // Step 2 — NSTableRow-style AXSelected=true (test-double path).
         var isSettable: DarwinBoolean = false
@@ -173,6 +203,14 @@ extension AXLogicProElements {
     /// with fake AX trees that don't set explicit roles on test rows.
     static func allTrackHeaders(runtime: Runtime = .production) -> [AXUIElement] {
         guard let headers = getTrackHeaders(runtime: runtime) else { return [] }
+        return trackHeaders(in: headers, runtime: runtime)
+    }
+
+    /// Enumerate rows inside an already trusted track-header container.
+    private static func trackHeaders(
+        in headers: AXUIElement,
+        runtime: Runtime
+    ) -> [AXUIElement] {
         let directChildren = AXHelpers.getChildren(headers, runtime: runtime.ax)
         if !directChildren.isEmpty {
             if directChildren.contains(where: {

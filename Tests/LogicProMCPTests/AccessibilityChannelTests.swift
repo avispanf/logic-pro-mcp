@@ -3189,6 +3189,64 @@ private func makeTempoSliderFixture(
     #expect(obj["observed"] as? Int == 0)
 }
 
+@Test func testTrackSelectResolvesHeadersOnceBeforeActuation() async throws {
+    // Regression: live 52-track projects measured ~20s per full header discovery.
+    // The command used to resolve the row, then resolve it again inside the AX
+    // selection ladder, and then rediscover its parent — finishing State A only
+    // after the 25s command deadline. One discovery resolves row + parent; the
+    // second read below is the independent post-write verification.
+    let builder = FakeAXRuntimeBuilder()
+    let app = builder.element(650)
+    let window = builder.element(651)
+    let trackList = builder.element(652)
+    let firstHeader = builder.element(653)
+    let secondHeader = builder.element(654)
+    let mainWindowReads = CallCounter()
+
+    builder.setAttribute(app, kAXMainWindowAttribute as String, window)
+    builder.setChildren(window, [trackList])
+    builder.setAttribute(trackList, kAXRoleAttribute as String, kAXListRole as String)
+    builder.setAttribute(trackList, kAXIdentifierAttribute as String, "Track Headers")
+    builder.setChildren(trackList, [firstHeader, secondHeader])
+    for header in [firstHeader, secondHeader] {
+        builder.setAttribute(header, kAXRoleAttribute as String, kAXLayoutItemRole as String)
+    }
+    builder.setAttribute(firstHeader, kAXSelectedAttribute as String, true)
+    builder.setAttribute(secondHeader, kAXSelectedAttribute as String, false)
+
+    let runtime = builder.makeLogicRuntime(
+        appElement: app,
+        attributeValueHandler: { element, attribute in
+            if builder.elementID(element) == builder.elementID(app),
+               attribute == kAXMainWindowAttribute as String {
+                mainWindowReads.inc()
+            }
+            return nil
+        },
+        setAttributeHandler: nil,
+        performActionHandler: { element, action in
+            guard element == secondHeader, action == kAXPressAction as String else {
+                return false
+            }
+            builder.setAttribute(firstHeader, kAXSelectedAttribute as String, false)
+            builder.setAttribute(secondHeader, kAXSelectedAttribute as String, true)
+            return true
+        }
+    )
+    let channel = makeAXBackedAccessibilityChannel(
+        builder: builder,
+        app: app,
+        logicRuntime: runtime
+    )
+
+    let result = await channel.execute(operation: "track.select", params: ["index": "1"])
+    let object = decodeAccessibilityJSON(result.message)
+
+    #expect(result.isSuccess)
+    #expect(object["state"] as? String == "A")
+    #expect(mainWindowReads.count == 2)
+}
+
 @Test func testAccessibilityChannelSetInstrumentReturnsTargetAndPatchVerificationMetadata() async {
     let fixture = makeSetInstrumentFixture()
     let logicRuntime = fixture.builder.makeLogicRuntime(
