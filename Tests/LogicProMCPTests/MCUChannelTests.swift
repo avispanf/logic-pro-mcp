@@ -34,9 +34,18 @@ import Testing
     )
     #expect(result.isSuccess)
 
-    // Verify banking sequence: bankRight → fader → bankLeft (restore)
+    // Verify complete momentary banking gestures:
+    // bankRight down/up → fader → bankLeft down/up (restore).
     let sent = await transport.sentBytes
-    #expect(sent.count >= 3) // bank + fader + restore
+    #expect(sent.count >= 5)
+    #expect(MCUProtocol.decodeButton(sent[0])?.function == .bankRight)
+    #expect(MCUProtocol.decodeButton(sent[0])?.on == true)
+    #expect(MCUProtocol.decodeButton(sent[1])?.function == .bankRight)
+    #expect(MCUProtocol.decodeButton(sent[1])?.on == false)
+    #expect(MCUProtocol.decodeButton(sent[sent.count - 2])?.function == .bankLeft)
+    #expect(MCUProtocol.decodeButton(sent[sent.count - 2])?.on == true)
+    #expect(MCUProtocol.decodeButton(sent[sent.count - 1])?.function == .bankLeft)
+    #expect(MCUProtocol.decodeButton(sent[sent.count - 1])?.on == false)
 }
 
 @Test func testMCUBankingQueueDuringBank() async {
@@ -52,6 +61,27 @@ import Testing
     let result2 = await r2
     #expect(result1.isSuccess)
     #expect(result2.isSuccess)
+}
+
+@Test func testAuditSelectionResetsUnknownBankOnceAndKeepsKnownBank() async {
+    let transport = AutomationTargetSurface(
+        selectedTrack: 0,
+        modes: Array(repeating: .off, count: 32)
+    )
+    let cache = StateCache()
+    let channel = MCUChannel(
+        transport: transport,
+        cache: cache,
+        persistentSelectionBanking: true
+    )
+
+    _ = await channel.execute(operation: "track.select", params: ["index": "8"])
+    _ = await channel.execute(operation: "track.select", params: ["index": "16"])
+
+    #expect(await transport.selectedTrackIndex() == 16)
+    let events = await transport.events
+    #expect(events.contains("select:8"))
+    #expect(events.contains("select:16"))
 }
 
 @Test func testMCUConnectionStateTracking() async {

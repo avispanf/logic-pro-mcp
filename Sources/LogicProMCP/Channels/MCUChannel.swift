@@ -41,7 +41,9 @@ actor MCUChannel: Channel {
     private let cache: StateCache
     private let feedbackParser: MCUFeedbackParser
     private let axReadback: AXReadback?
+    private let usesPersistentSelectionBanking: Bool
     private(set) var currentBank: Int = 0
+    private var persistentSelectionBankKnown = false
     private var bankingQueue: [CheckedContinuation<Void, Never>] = []
     private var isBanking: Bool = false
 
@@ -72,11 +74,14 @@ actor MCUChannel: Channel {
     init(
         transport: any MCUTransportProtocol,
         cache: StateCache,
-        axReadback: AXReadback? = nil
+        axReadback: AXReadback? = nil,
+        persistentSelectionBanking: Bool? = nil
     ) {
         self.transport = transport
         self.cache = cache
         self.axReadback = axReadback
+        self.usesPersistentSelectionBanking = persistentSelectionBanking
+            ?? (ProcessInfo.processInfo.environment["LOGIC_PRO_MCP_TRACK_SELECT_MCU_FIRST"] == "1")
         self.feedbackParser = MCUFeedbackParser(cache: cache)
     }
 
@@ -577,7 +582,7 @@ actor MCUChannel: Channel {
             return Self.invalidParams("Invalid MCU parameters for \(operation)", operation: operation)
         }
 
-        return await withBanking(targetTrack: track) { strip in
+        let operationBody: (Int) async -> ChannelResult = { strip in
             let bytes = MCUProtocol.encodeButton(function, strip: strip, on: enabled)
             await self.transport.send(bytes)
             // v3.1.2 (P0-1) — MCU button echo is LED-only, no AX-side mirror
@@ -596,6 +601,13 @@ actor MCUChannel: Channel {
                 ]
             ))
         }
+        if function == .select, usesPersistentSelectionBanking {
+            return await withPersistentSelectionBanking(
+                targetTrack: track,
+                operation: operationBody
+            )
+        }
+        return await withBanking(targetTrack: track, operation: operationBody)
     }
 
     private func executeAutomation(_ params: [String: String]) async -> ChannelResult {
@@ -786,6 +798,60 @@ actor MCUChannel: Channel {
 
     // MARK: - Banking (Proper Queue)
 
+    /// Send a global MCU button as a complete momentary gesture. Logic 12.3
+    /// does not change banks reliably when it receives only the note-on half
+    /// of Bank Left/Right; without the matching release, selecting track 8
+    /// wraps back to strip 0 in bank 0. Strip buttons keep their existing
+    /// explicit-state behaviour, but navigation buttons must always be paired.
+    private func sendMomentaryButton(_ button: MCUProtocol.ButtonFunction) async {
+        await transport.send(MCUProtocol.encodeButton(button, on: true))
+        try? await Task.sleep(for: .milliseconds(20))
+        await transport.send(MCUProtocol.encodeButton(button, on: false))
+        try? await Task.sleep(for: .milliseconds(80))
+    }
+
+    /// Dedicated long-audit selection banking. A Logic control surface keeps
+    /// its last bank across virtual-port reconnects, so a fresh MCP process
+    /// cannot assume bank zero. Reset left once, then retain the known bank for
+    /// the lifetime of this dedicated surface. We intentionally do not bank
+    /// back after selecting: restoring the bank produced enough feedback to
+    /// outlive the server deadline and could race the next selection.
+    private func withPersistentSelectionBanking(
+        targetTrack: Int,
+        operation: @escaping (Int) async -> ChannelResult
+    ) async -> ChannelResult {
+        guard (0...255).contains(targetTrack) else {
+            return .error("MCU bank target track \(targetTrack) out of range (0..255)")
+        }
+        while isBanking {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                bankingQueue.append(continuation)
+            }
+        }
+        isBanking = true
+        defer {
+            isBanking = false
+            if !bankingQueue.isEmpty {
+                bankingQueue.removeFirst().resume()
+            }
+        }
+        if !persistentSelectionBankKnown {
+            for _ in 0..<32 {
+                await sendMomentaryButton(.bankLeft)
+            }
+            currentBank = 0
+            persistentSelectionBankKnown = true
+        }
+        let targetBank = targetTrack / 8
+        let delta = targetBank - currentBank
+        let button: MCUProtocol.ButtonFunction = delta > 0 ? .bankRight : .bankLeft
+        for _ in 0..<abs(delta) {
+            await sendMomentaryButton(button)
+        }
+        currentBank = targetBank
+        return await operation(targetTrack % 8)
+    }
+
     private func withBanking(targetTrack: Int, operation: @escaping (Int) async -> ChannelResult) async -> ChannelResult {
         // Sanity cap: real Logic projects rarely exceed 256 tracks (32 MCU banks).
         // A `track.select {index: 99999}` was seen to spend 25 s walking 12499
@@ -821,8 +887,7 @@ actor MCUChannel: Channel {
         let bankDelta = targetBank - currentBank
         let bankButton: MCUProtocol.ButtonFunction = bankDelta > 0 ? .bankRight : .bankLeft
         for _ in 0..<abs(bankDelta) {
-            await transport.send(MCUProtocol.encodeButton(bankButton, on: true))
-            try? await Task.sleep(for: .milliseconds(1))
+            await sendMomentaryButton(bankButton)
         }
         currentBank = targetBank
 
@@ -833,8 +898,7 @@ actor MCUChannel: Channel {
         let restoreDelta = originalBank - currentBank
         let restoreButton: MCUProtocol.ButtonFunction = restoreDelta > 0 ? .bankRight : .bankLeft
         for _ in 0..<abs(restoreDelta) {
-            await transport.send(MCUProtocol.encodeButton(restoreButton, on: true))
-            try? await Task.sleep(for: .milliseconds(1))
+            await sendMomentaryButton(restoreButton)
         }
         currentBank = originalBank
 
