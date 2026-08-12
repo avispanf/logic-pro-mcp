@@ -225,9 +225,13 @@ actor StatePoller {
         let tracksReady: Bool
         let tracksVersion = await cache.currentVersion(for: .tracks)
         if let tracks = await axChannel.readTrackStates() {
-            // Same reasoning as `poll`: the read succeeded, so tracks are readable. Whether this
-            // particular value was applied or dropped in favour of a newer one does not change that.
-            _ = await cache.updateTracks(tracks, ifCurrent: tracksVersion)
+            // A large AX scan can overlap continuous MCU mute/solo/select
+            // feedback. Merge those newer state bits into AX's authoritative
+            // identity/count snapshot instead of dropping the whole scan.
+            _ = await cache.updateTracksFromAX(
+                tracks,
+                ifProjectCurrent: tracksVersion
+            )
             tracksReady = true
         } else {
             tracksReady = await poll(
@@ -235,7 +239,10 @@ actor StatePoller {
                 section: .tracks,
                 axChannel: axChannel, cache: cache, as: [TrackState].self
             ) { cache, tracks, observed in
-                await cache.updateTracks(tracks, ifCurrent: observed)
+                await cache.updateTracksFromAX(
+                    tracks,
+                    ifProjectCurrent: observed
+                )
             }
         }
         if tracksReady { cacheKeys.append(.tracks) }

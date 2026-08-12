@@ -339,6 +339,52 @@ actor StateCache {
         return true
     }
 
+    /// Commit a full AX identity snapshot without losing MCU feedback that
+    /// arrived while the (potentially slow) Arrange-tree walk was running.
+    ///
+    /// MCU writes advance the tracks revision for mute/solo/arm/selection but
+    /// may initially know only one eight-strip bank with placeholder names.
+    /// Rejecting the whole AX snapshot on any such revision change can leave
+    /// the cache permanently stuck at `Track 1`...`Track 8`, because feedback
+    /// continues to arrive faster than a large AX scan can finish. A project
+    /// epoch change still rejects the snapshot outright; within the same
+    /// project, merge the newer MCU-controlled state by stable track id while
+    /// accepting AX's complete identities and count.
+    @discardableResult
+    func updateTracksFromAX(
+        _ axTracks: [TrackState],
+        ifProjectCurrent observed: SectionVersion
+    ) -> Bool {
+        guard projectEpoch == observed.projectEpoch else {
+            droppedStaleWriteCounts[.tracks, default: 0] += 1
+            Log.debug(
+                "stale AX track snapshot refused: observed project epoch "
+                + "\(observed.projectEpoch), current \(projectEpoch)",
+                subsystem: "cache"
+            )
+            return false
+        }
+
+        guard sectionRevisions[.tracks, default: 0] != observed.sectionRevision,
+              !axTracks.isEmpty else {
+            updateTracks(axTracks)
+            return true
+        }
+
+        let currentByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        let merged = axTracks.map { axTrack -> TrackState in
+            guard let current = currentByID[axTrack.id] else { return axTrack }
+            var track = axTrack
+            track.isMuted = current.isMuted
+            track.isSoloed = current.isSoloed
+            track.isArmed = current.isArmed
+            track.isSelected = current.isSelected
+            return track
+        }
+        updateTracks(merged)
+        return true
+    }
+
     /// v3.1.1 (P1-3) — exposed for diagnostics and tests. Returns the number
     /// of consecutive empty `updateTracks([])` calls suppressed since the
     /// last non-empty update. Resets to 0 once any non-empty update lands or

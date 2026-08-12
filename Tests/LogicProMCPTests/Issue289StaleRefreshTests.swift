@@ -68,6 +68,50 @@ struct Issue289StaleRefreshTests {
         #expect(await cache.droppedStaleWriteCount(for: .transport) == 1)
     }
 
+    @Test func axTrackIdentitySnapshotMergesNewerMCUState() async {
+        let cache = StateCache()
+        let observed = await cache.currentVersion(for: .tracks)
+
+        // Model one fresh MCU bank arriving while AX is walking the full
+        // project. These writes create eight placeholder identities and move
+        // the section revision beyond the poller's observation.
+        await cache.updateTrack(at: 7) { $0.isMuted = true }
+        await cache.selectOnly(trackAt: 4)
+
+        let axTracks = (0..<52).map {
+            TrackState(id: $0, name: "Real Track \($0 + 1)", type: .audio)
+        }
+        let applied = await cache.updateTracksFromAX(
+            axTracks,
+            ifProjectCurrent: observed
+        )
+        let merged = await cache.getTracks()
+
+        #expect(applied)
+        #expect(merged.count == 52)
+        #expect(merged[0].name == "Real Track 1")
+        #expect(merged[51].name == "Real Track 52")
+        #expect(merged[7].isMuted)
+        #expect(merged[4].isSelected)
+        #expect(merged.filter(\.isSelected).count == 1)
+        #expect(await cache.droppedStaleWriteCount(for: .tracks) == 0)
+    }
+
+    @Test func axTrackIdentitySnapshotRejectsPreviousProjectEpoch() async {
+        let cache = StateCache()
+        let observed = await cache.currentVersion(for: .tracks)
+        await cache.advanceProjectEpoch()
+
+        let applied = await cache.updateTracksFromAX(
+            [TrackState(id: 0, name: "Old Project", type: .audio)],
+            ifProjectCurrent: observed
+        )
+
+        #expect(!applied)
+        #expect((await cache.getTracks()).isEmpty)
+        #expect(await cache.droppedStaleWriteCount(for: .tracks) == 1)
+    }
+
     private func transport(tempo: Double) -> TransportState {
         var state = TransportState()
         state.tempo = tempo
