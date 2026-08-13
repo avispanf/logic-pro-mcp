@@ -114,6 +114,13 @@ Changing the namespace intentionally creates a different persistent device;
 select its input and output once in Logic's Control Surfaces Setup. Its visible
 name includes the namespace, for example `LogicProMCP-MCU-Internal [codex]`.
 
+The separate legacy CoreMIDI source and destination also include the server
+process ID, for example `LogicProMCP-MIDI-Internal [codex:4242]`. They are
+session-scoped rather than control-surface identities. This prevents MCP hosts
+that keep multiple stdio sessions alive from publishing indistinguishable
+general-MIDI endpoints; do not assign these session-scoped ports to the MCU
+surface.
+
 Expected health after registration:
 
 ```json

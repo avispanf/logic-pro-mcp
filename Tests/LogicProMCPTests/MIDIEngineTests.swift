@@ -121,7 +121,11 @@ private final class MIDIEngineRuntimeHarness: @unchecked Sendable {
 
 @Test func testMIDIEngineStartAndStopLifecycleUsesRuntimeResources() async throws {
     let harness = MIDIEngineRuntimeHarness()
-    let engine = MIDIEngine(runtime: harness.makeRuntime())
+    let engine = MIDIEngine(
+        runtime: harness.makeRuntime(),
+        environment: [MIDIPortManager.identityNamespaceEnvironmentKey: "codex"],
+        processIdentifier: 4242
+    )
 
     try await engine.start()
     try await engine.start()
@@ -136,9 +140,9 @@ private final class MIDIEngineRuntimeHarness: @unchecked Sendable {
     #expect(started.createClientCalls == 1)
     #expect(started.createSourceCalls == 1)
     #expect(started.createDestinationCalls == 1)
-    #expect(started.lastClientName == ServerConfig.virtualMIDISourceName)
-    #expect(started.lastSourceName == ServerConfig.virtualMIDISourceName)
-    #expect(started.lastDestinationName == ServerConfig.virtualMIDISinkName)
+    #expect(started.lastClientName == "LogicProMCP-MIDI-Internal [codex:4242]")
+    #expect(started.lastSourceName == "LogicProMCP-MIDI-Internal [codex:4242]")
+    #expect(started.lastDestinationName == "LogicProMCP-MIDI-In [codex:4242]")
 
     await engine.stop()
     await engine.stop()

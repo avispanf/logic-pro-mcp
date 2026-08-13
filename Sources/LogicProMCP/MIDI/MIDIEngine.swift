@@ -98,16 +98,35 @@ actor MIDIEngine: CoreMIDIEngineProtocol {
     private var virtualDestination: MIDIEndpointRef = 0
     private var isRunning = false
     private let runtime: Runtime
+    private let identityNamespace: String
+    private let processIdentifier: Int32
 
     /// Stream of inbound MIDI packets from Logic Pro via the virtual destination.
     let inboundMessages: AsyncStream<MIDIFeedback.Event>
     private let inboundContinuation: AsyncStream<MIDIFeedback.Event>.Continuation
 
-    init(runtime: Runtime = .production) {
+    init(
+        runtime: Runtime = .production,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
+    ) {
         self.runtime = runtime
+        self.identityNamespace = MIDIPortManager.normalizedNamespace(from: environment)
+        self.processIdentifier = processIdentifier
         let (stream, continuation) = AsyncStream<MIDIFeedback.Event>.makeStream()
         self.inboundMessages = stream
         self.inboundContinuation = continuation
+    }
+
+    /// The legacy CoreMIDI channel is intentionally separate from the stable
+    /// MCU/KeyCmd/Scripter surfaces. MCP hosts may keep more than one stdio
+    /// session alive for the same configured server; publishing the legacy
+    /// ports under their old fixed names then creates indistinguishable live
+    /// endpoints. These ports have never had stable unique IDs, so attaching a
+    /// process-session discriminator removes the ambiguity without changing the
+    /// persistent MCU identity that Logic's control-surface setup depends on.
+    private func publishedName(for baseName: String) -> String {
+        "\(baseName) [\(identityNamespace):\(processIdentifier)]"
     }
 
     deinit {
@@ -120,15 +139,17 @@ actor MIDIEngine: CoreMIDIEngineProtocol {
     func start() throws {
         guard !isRunning else { return }
 
+        let sourceName = publishedName(for: ServerConfig.virtualMIDISourceName)
+        let destinationName = publishedName(for: ServerConfig.virtualMIDISinkName)
         let (clientStatus, createdClient) = runtime.createClient(
-            ServerConfig.virtualMIDISourceName,
+            sourceName,
             MIDIEngine.logMIDINotification
         )
         guard clientStatus == noErr else {
             throw MIDIEngineError.clientCreationFailed(clientStatus)
         }
 
-        let (sourceStatus, createdSource) = runtime.createSource(createdClient, ServerConfig.virtualMIDISourceName)
+        let (sourceStatus, createdSource) = runtime.createSource(createdClient, sourceName)
         guard sourceStatus == noErr else {
             runtime.disposeClient(createdClient)
             throw MIDIEngineError.sourceCreationFailed(sourceStatus)
@@ -137,7 +158,7 @@ actor MIDIEngine: CoreMIDIEngineProtocol {
         let continuation = self.inboundContinuation
         let (destinationStatus, createdDestination) = runtime.createDestination(
             createdClient,
-            ServerConfig.virtualMIDISinkName
+            destinationName
         ) { bytes in
             for event in MIDIFeedback.parseBytes(bytes) {
                 continuation.yield(event)
@@ -153,7 +174,7 @@ actor MIDIEngine: CoreMIDIEngineProtocol {
         virtualSource = createdSource
         virtualDestination = createdDestination
         isRunning = true
-        Log.info("MIDIEngine started — source: \(ServerConfig.virtualMIDISourceName), sink: \(ServerConfig.virtualMIDISinkName)", subsystem: "midi")
+        Log.info("MIDIEngine started — source: \(sourceName), sink: \(destinationName)", subsystem: "midi")
     }
 
     /// Tear down all CoreMIDI resources.

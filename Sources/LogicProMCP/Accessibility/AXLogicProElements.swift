@@ -215,6 +215,7 @@ enum AXLogicProElements {
     ) -> Bool {
         guard isDialogWindow(window, runtime: runtime) else { return false }
         return !isKeyboardLayoutOverlayWindow(window, runtime: runtime)
+            && !isWindowSharingSessionOverlayWindow(window, runtime: runtime)
             && !isPluginEditorWindow(window, runtime: runtime)
             && !isSmartControlsWindow(window, runtime: runtime)
     }
@@ -366,6 +367,29 @@ enum AXLogicProElements {
         guard AXHelpers.getRole(child, runtime: runtime) == (kAXButtonRole as String) else { return false }
         let description: String = AXHelpers.getAttribute(child, kAXDescriptionAttribute, runtime: runtime) ?? ""
         return description.hasPrefix("com.apple.keylayout.")
+    }
+
+    /// macOS window sharing adds a system-owned status overlay to the shared app's
+    /// accessibility window list.  Logic sees it as an AXDialog even though it does
+    /// not block input.  Match only the measured, locale-neutral system identifier
+    /// and only when it is the overlay's sole direct child; ordinary one-button Logic
+    /// alerts therefore remain blocking.
+    private static func isWindowSharingSessionOverlayWindow(
+        _ window: AXUIElement,
+        runtime: AXHelpers.Runtime
+    ) -> Bool {
+        let children = AXHelpers.getChildren(window, runtime: runtime)
+        guard children.count == 1 else { return false }
+        let child = children[0]
+        guard AXHelpers.getRole(child, runtime: runtime) == (kAXButtonRole as String) else {
+            return false
+        }
+        let expected = "WindowSharingSessionButton"
+        return [
+            AXHelpers.getIdentifier(child, runtime: runtime),
+            AXHelpers.getDescription(child, runtime: runtime),
+            AXHelpers.getTitle(child, runtime: runtime)
+        ].contains { $0?.trimmingCharacters(in: .whitespacesAndNewlines) == expected }
     }
 
     /// True when `window` contains Logic's track-header rail. Used by

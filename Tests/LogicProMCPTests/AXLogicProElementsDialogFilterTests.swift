@@ -210,6 +210,42 @@ import Testing
     #expect(!(AXLogicProElements.dialogPresent(runtime: runtime)))
 }
 
+@Test func testDialogPresentIgnoresWindowSharingSessionOverlay() {
+    let builder = FakeAXRuntimeBuilder()
+    let app = builder.element(1)
+    let dialog = builder.element(2)
+    let indicator = builder.element(3)
+    let arrange = builder.element(4)
+
+    builder.setAttribute(dialog, kAXSubroleAttribute as String, kAXDialogSubrole as String)
+    builder.setAttribute(dialog, kAXTitleAttribute as String, "Window")
+    builder.setChildren(dialog, [indicator])
+    builder.setAttribute(indicator, kAXRoleAttribute as String, kAXButtonRole as String)
+    builder.setAttribute(indicator, kAXTitleAttribute as String, "WindowSharingSessionButton")
+    builder.setAttribute(app, kAXWindowsAttribute as String, [dialog, arrange])
+
+    let runtime = builder.makeLogicRuntime(appElement: app)
+    #expect(!(AXLogicProElements.dialogPresent(runtime: runtime)))
+    #expect(AXLogicProElements.blockingDialogInfo(runtime: runtime) == nil)
+}
+
+@Test func testOneButtonDialogWithoutSharingIdentifierStaysBlocking() {
+    let builder = FakeAXRuntimeBuilder()
+    let app = builder.element(1)
+    let dialog = builder.element(2)
+    let confirm = builder.element(3)
+    let arrange = builder.element(4)
+
+    builder.setAttribute(dialog, kAXSubroleAttribute as String, kAXDialogSubrole as String)
+    builder.setChildren(dialog, [confirm])
+    builder.setAttribute(confirm, kAXRoleAttribute as String, kAXButtonRole as String)
+    builder.setAttribute(confirm, kAXTitleAttribute as String, "OK")
+    builder.setAttribute(app, kAXWindowsAttribute as String, [dialog, arrange])
+
+    let runtime = builder.makeLogicRuntime(appElement: app)
+    #expect(AXLogicProElements.dialogPresent(runtime: runtime))
+}
+
 @Test func testDialogPresentFailsClosedWhenWindowsAreUnreadable() {
     let builder = FakeAXRuntimeBuilder()
     let app = builder.element(1)
