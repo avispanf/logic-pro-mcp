@@ -2,6 +2,69 @@
 import Testing
 @testable import LogicProMCP
 
+@Test func testAXLogicProElementsFindsHeadersBeforeTraversingAnUnrelatedEditor() {
+    let builder = FakeAXRuntimeBuilder()
+    let app = builder.element(9700)
+    let window = builder.element(9701)
+    let editor = builder.element(9702)
+    let nested = builder.element(9703)
+    let forbidden = builder.element(9704)
+    let headers = builder.element(9705)
+    let row = builder.element(9706)
+    builder.setAttribute(app, kAXWindowsAttribute as String, [window])
+    builder.setChildren(window, [editor, headers])
+    builder.setChildren(editor, [nested])
+    builder.setChildren(nested, [forbidden])
+    for element in [editor, nested, forbidden, headers] {
+        builder.setAttribute(element, kAXRoleAttribute as String, kAXGroupRole as String)
+    }
+    builder.setAttribute(headers, kAXDescriptionAttribute as String, "Track Headers")
+    builder.setChildren(headers, [row])
+    builder.setAttribute(row, kAXRoleAttribute as String, kAXLayoutItemRole as String)
+    builder.setAttribute(headers, kAXSelectedChildrenAttribute as String, [row])
+    let runtime = builder.makeLogicRuntime(
+        appElement: app,
+        attributeValueHandler: { element, _ in
+            #expect(element != forbidden)
+            return nil
+        },
+        setAttributeHandler: nil,
+        performActionHandler: nil
+    )
+    #expect(AXLogicProElements.getTrackHeaders(runtime: runtime) == headers)
+}
+
+@Test func testAXLogicProElementsSkipsHiddenMixerScanAndFindsVisibleMixer() {
+    for visible in [false, true] {
+        let builder = FakeAXRuntimeBuilder()
+        let app = builder.element(9600)
+        let window = builder.element(9601)
+        let toolbar = builder.element(9602)
+        let toggle = builder.element(9603)
+        let mixer = builder.element(9604)
+        builder.setAttribute(app, kAXMainWindowAttribute as String, window)
+        builder.setChildren(window, [toolbar, mixer])
+        builder.setAttribute(toolbar, kAXRoleAttribute as String, kAXToolbarRole as String)
+        builder.setAttribute(toolbar, kAXDescriptionAttribute as String, "Control Bar")
+        builder.setChildren(toolbar, [toggle])
+        builder.setAttribute(toggle, kAXRoleAttribute as String, kAXCheckBoxRole as String)
+        builder.setAttribute(toggle, kAXTitleAttribute as String, "Mixer")
+        builder.setAttribute(toggle, kAXValueAttribute as String, visible ? 1 : 0)
+        builder.setAttribute(mixer, kAXRoleAttribute as String, kAXGroupRole as String)
+        builder.setAttribute(mixer, kAXIdentifierAttribute as String, "Mixer")
+        let runtime = builder.makeLogicRuntime(
+            appElement: app,
+            attributeValueHandler: { element, _ in
+                if !visible { #expect(element != mixer) }
+                return nil
+            },
+            setAttributeHandler: nil,
+            performActionHandler: nil
+        )
+        #expect(AXLogicProElements.getMixerArea(runtime: runtime) == (visible ? mixer : nil))
+    }
+}
+
 @Test func testAXLogicProElementsFindTransportTrackMixerAndArrangementAreas() {
     let builder = FakeAXRuntimeBuilder()
     let app = builder.element(1)

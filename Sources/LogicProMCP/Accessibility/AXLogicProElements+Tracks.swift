@@ -24,6 +24,9 @@ extension AXLogicProElements {
     static func getTrackHeaders(runtime: Runtime = .production) -> AXUIElement? {
         guard let window = mainWindow(runtime: runtime) else { return nil }
         if isProjectPickerWindow(window, runtime: runtime) { return nil }
+        if let headers = findTrackHeadersGroup(in: window, runtime: runtime.ax) {
+            return headers
+        }
         // Contracted / test-path lookups first.
         if let area = AXHelpers.findDescendant(
             of: window, role: kAXListRole, identifier: "Track Headers", runtime: runtime.ax

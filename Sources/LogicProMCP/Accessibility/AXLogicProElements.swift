@@ -399,12 +399,28 @@ enum AXLogicProElements {
         _ window: AXUIElement,
         runtime: AXHelpers.Runtime
     ) -> Bool {
-        let groups = AXHelpers.findAllDescendants(
-            of: window, role: kAXGroupRole, maxDepth: 8, runtime: runtime
-        )
-        return groups.contains { group in
-            isTrackHeadersGroup(group, runtime: runtime)
+        findTrackHeadersGroup(in: window, runtime: runtime) != nil
+    }
+
+    static func findTrackHeadersGroup(
+        in window: AXUIElement,
+        runtime: AXHelpers.Runtime
+    ) -> AXUIElement? {
+        var queue = AXHelpers.getChildren(window, runtime: runtime).prefix(2048).map { ($0, 1) }
+        var next = 0
+        while next < queue.count, next < 2048 {
+            let (element, depth) = queue[next]
+            next += 1
+            if AXHelpers.getRole(element, runtime: runtime) == (kAXGroupRole as String),
+               isTrackHeadersGroup(element, runtime: runtime) {
+                return element
+            }
+            if depth < 8, queue.count < 2048 {
+                queue.append(contentsOf: AXHelpers.getChildren(element, runtime: runtime)
+                    .prefix(2048 - queue.count).map { ($0, depth + 1) })
+            }
         }
+        return nil
     }
 
     /// Logic exposes the arrange track-header rail as an AXGroup with writable

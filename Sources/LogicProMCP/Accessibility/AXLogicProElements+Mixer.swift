@@ -8,6 +8,11 @@ extension AXLogicProElements {
     /// Find the mixer area.
     static func getMixerArea(runtime: Runtime = .production) -> AXUIElement? {
         guard let window = mainWindow(runtime: runtime) else { return nil }
+        if let toggle = findControlBarCheckbox(matching: AXLocalePolicy.mixerNamedElement, runtime: runtime),
+           let value = AXHelpers.getValue(toggle, runtime: runtime.ax) as? NSNumber,
+           value.intValue == 0 {
+            return nil
+        }
 
         // Legacy/test-path lookup. Older Logic builds and existing fake AX
         // trees expose the mixer with AXIdentifier="Mixer".
