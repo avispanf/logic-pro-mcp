@@ -8,10 +8,21 @@ extension AXLogicProElements {
     /// Find the mixer area.
     static func getMixerArea(runtime: Runtime = .production) -> AXUIElement? {
         guard let window = mainWindow(runtime: runtime) else { return nil }
-        if let toggle = findControlBarCheckbox(matching: AXLocalePolicy.mixerNamedElement, runtime: runtime),
+        if let toolbar = AXHelpers.findChild(of: window, role: kAXToolbarRole, runtime: runtime.ax),
+           let toggle = AXLocalePolicy.findDescendant(
+               of: toolbar, role: kAXCheckBoxRole, matching: AXLocalePolicy.mixerNamedElement,
+               maxDepth: 4, runtime: runtime.ax
+           ),
            let value = AXHelpers.getValue(toggle, runtime: runtime.ax) as? NSNumber,
            value.intValue == 0 {
             return nil
+        }
+        if let mixer = mixerAreaCandidates(in: window, runtime: runtime.ax)
+            .sorted(by: { lhs, rhs in
+                if lhs.stripCount != rhs.stripCount { return lhs.stripCount > rhs.stripCount }
+                return lhs.totalChildCount > rhs.totalChildCount
+            }).first?.element {
+            return mixer
         }
 
         // Legacy/test-path lookup. Older Logic builds and existing fake AX
@@ -34,13 +45,7 @@ extension AXLogicProElements {
         // Do not fall back to the Inspector's small two-strip "믹서" area; that
         // would make a full mixer read silently return only selected-track +
         // output strips.
-        return mixerAreaCandidates(in: window, runtime: runtime.ax)
-            .sorted { lhs, rhs in
-                if lhs.stripCount != rhs.stripCount { return lhs.stripCount > rhs.stripCount }
-                return lhs.totalChildCount > rhs.totalChildCount
-            }
-            .first?
-            .element
+        return nil
     }
 
     /// #107: the per-track volume fader inside the track HEADER (an AXSlider
@@ -125,10 +130,13 @@ extension AXLogicProElements {
         into candidates: inout [MixerAreaCandidate]
     ) {
         guard depth <= 12 else { return }
+        let role = AXHelpers.getRole(element, runtime: runtime)
+        guard depth == 0 || isMixerContainerRole(role) || role == "AXSplitGroup" else { return }
 
         let text = elementSearchText(element, runtime: runtime)
         let isInspector = ancestorIsInspector
             || AXLocalePolicy.mixerInspectorContext.containsAny(in: text)
+        guard !isInspector else { return }
 
         if !isInspector,
            isMixerNamedElement(element, runtime: runtime),
@@ -140,6 +148,7 @@ extension AXLogicProElements {
                 stripCount: strips.count,
                 totalChildCount: AXHelpers.getChildren(element, runtime: runtime).count
             ))
+            return
         }
 
         for child in AXHelpers.getChildren(element, runtime: runtime) {

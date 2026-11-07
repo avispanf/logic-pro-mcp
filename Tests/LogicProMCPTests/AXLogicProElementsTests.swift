@@ -2,6 +2,36 @@
 import Testing
 @testable import LogicProMCP
 
+@Test func testAXLogicProElementsFindsMixerWithoutWalkingLibraryRowsOrStripControls() {
+    let builder = FakeAXRuntimeBuilder()
+    let app = builder.element(9800)
+    let window = builder.element(9801)
+    let library = builder.element(9802)
+    let libraryRow = builder.element(9803)
+    let mixer = builder.element(9804)
+    let strip = builder.element(9805)
+    let stripControl = builder.element(9806)
+    builder.setAttribute(app, kAXMainWindowAttribute as String, window)
+    builder.setChildren(window, [library, mixer])
+    builder.setAttribute(library, kAXRoleAttribute as String, kAXOutlineRole as String)
+    builder.setChildren(library, [libraryRow])
+    builder.setAttribute(mixer, kAXRoleAttribute as String, "AXLayoutArea")
+    builder.setAttribute(mixer, kAXDescriptionAttribute as String, "Mixer")
+    builder.setChildren(mixer, [strip])
+    builder.setAttribute(strip, kAXRoleAttribute as String, kAXLayoutItemRole as String)
+    builder.setChildren(strip, [stripControl])
+    let runtime = builder.makeLogicRuntime(
+        appElement: app,
+        attributeValueHandler: { element, _ in
+            #expect(element != libraryRow && element != stripControl)
+            return nil
+        },
+        setAttributeHandler: nil,
+        performActionHandler: nil
+    )
+    #expect(AXLogicProElements.getMixerArea(runtime: runtime) == mixer)
+}
+
 @Test func testAXLogicProElementsFindsHeadersBeforeTraversingAnUnrelatedEditor() {
     let builder = FakeAXRuntimeBuilder()
     let app = builder.element(9700)
