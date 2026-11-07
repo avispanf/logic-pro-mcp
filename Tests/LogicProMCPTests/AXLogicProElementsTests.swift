@@ -215,6 +215,37 @@ import Testing
     #expect(AXLogicProElements.dialogPresent(runtime: runtime))
 }
 
+@Test func testAXLogicProElementsPrefersLogic13TransportToolbarOverLegacyGroup() {
+    let builder = FakeAXRuntimeBuilder()
+    let app = builder.element(9100)
+    let window = builder.element(9101)
+    let legacyGroup = builder.element(9102)
+    let toolbar = builder.element(9103)
+    let play = builder.element(9104)
+    let record = builder.element(9105)
+    let bar = builder.element(9106)
+
+    builder.setAttribute(app, kAXMainWindowAttribute as String, window)
+    builder.setChildren(window, [legacyGroup, toolbar])
+    builder.setAttribute(legacyGroup, kAXRoleAttribute as String, kAXGroupRole as String)
+    builder.setAttribute(legacyGroup, kAXDescriptionAttribute as String, "Control Bar")
+    builder.setAttribute(toolbar, kAXRoleAttribute as String, kAXToolbarRole as String)
+    builder.setAttribute(toolbar, kAXDescriptionAttribute as String, "Control Bar")
+    builder.setChildren(toolbar, [play, record, bar])
+    builder.setAttribute(play, kAXRoleAttribute as String, kAXCheckBoxRole as String)
+    builder.setAttribute(play, kAXDescriptionAttribute as String, "Play")
+    builder.setAttribute(play, kAXValueAttribute as String, NSNumber(value: false))
+    builder.setAttribute(record, kAXRoleAttribute as String, kAXCheckBoxRole as String)
+    builder.setAttribute(record, kAXDescriptionAttribute as String, "Record")
+    builder.setAttribute(bar, kAXRoleAttribute as String, kAXSliderRole as String)
+    builder.setAttribute(bar, kAXDescriptionAttribute as String, "Bar")
+    let runtime = builder.makeLogicRuntime(appElement: app)
+
+    #expect(AXLogicProElements.getControlBar(runtime: runtime) == toolbar)
+    #expect(AXLogicProElements.findControlBarCheckbox(named: "재생", englishName: "Play", runtime: runtime) == play)
+    #expect(AXLogicProElements.findControlBarBarSlider(runtime: runtime) == bar)
+}
+
 @Test func testAXLogicProElementsControlBarCheckboxesAndLocatorSliders() {
     let builder = FakeAXRuntimeBuilder()
     let app = builder.element(320)

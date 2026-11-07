@@ -4,6 +4,26 @@ import Foundation
 import Testing
 @testable import LogicProMCP
 
+@Test func projectChooserProbeNeverTraversesAnArrangeWindow() {
+    let builder = FakeAXRuntimeBuilder()
+    let app = builder.element(9500)
+    let window = builder.element(9501)
+    let child = builder.element(9502)
+    builder.setAttribute(app, kAXWindowsAttribute as String, [window])
+    builder.setAttribute(window, kAXTitleAttribute as String, "Untitled - Tracks")
+    builder.setChildren(window, [child])
+    let runtime = builder.makeLogicRuntime(
+        appElement: app,
+        attributeValueHandler: { element, _ in
+            #expect(element != child)
+            return nil
+        },
+        setAttributeHandler: nil,
+        performActionHandler: nil
+    )
+    #expect(!AccessibilityChannel.exactEmptyProjectChooserIsVisible(runtime: runtime))
+}
+
 @Test("Creator Studio chooser requires one exact Empty Project and one enabled Choose button")
 func creatorStudioChooserSelectionGate() {
     #expect(AccessibilityChannel.chooserSelectionIsUnambiguous(

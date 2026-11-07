@@ -53,6 +53,11 @@ extension AXLogicProElements {
     static func getControlBar(runtime: Runtime = .production) -> AXUIElement? {
         guard let window = mainWindow(runtime: runtime) else { return nil }
 
+        if let toolbar = AXHelpers.findChild(of: window, role: kAXToolbarRole, runtime: runtime.ax),
+           looksLikeTransportContainer(toolbar, runtime: runtime.ax) {
+            return toolbar
+        }
+
         let groups = AXHelpers.findAllDescendants(of: window, role: kAXGroupRole, maxDepth: 8, runtime: runtime.ax)
         for group in groups {
             let desc = AXHelpers.getDescription(group, runtime: runtime.ax) ?? ""

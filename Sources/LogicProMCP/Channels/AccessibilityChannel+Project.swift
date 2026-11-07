@@ -99,6 +99,8 @@ extension AccessibilityChannel {
             candidates = enumerated
         }
         let matches = candidates.filter { window in
+            let windowTitle = AXHelpers.getTitle(window, runtime: runtime.ax)
+            guard windowTitle == "Choose a Project" else { return false }
             let emptyProjectLabels = AXHelpers.findAllDescendants(
                 of: window, role: kAXStaticTextRole as String, maxDepth: 12, runtime: runtime.ax
             ).filter {
@@ -114,7 +116,7 @@ extension AccessibilityChannel {
                 AXHelpers.getAttribute($0, kAXEnabledAttribute as String, runtime: runtime.ax)
             } ?? false
             return chooserSelectionIsUnambiguous(
-                windowTitle: AXHelpers.getTitle(window, runtime: runtime.ax),
+                windowTitle: windowTitle,
                 emptyProjectLabelCount: emptyProjectLabels.count,
                 chooseButtonCount: chooseButtons.count,
                 chooseEnabled: chooseEnabled
